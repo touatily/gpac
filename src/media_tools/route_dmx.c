@@ -173,6 +173,24 @@ struct __gf_routedmx {
 
 };
 
+typedef struct __attribute__((packed, scalar_storage_order("big-endian")))
+{
+	u32 v:			4;
+	u32 C:			2;
+	u32 psi:		2;
+	u32 S:			1;
+	u32 O:			2;
+	u32 H:			1;
+	u32 Res:		2;
+	u32 A:			1;
+	u32 B:			1;
+	u32 HDR_LEN: 	8;
+	u32 cp: 		8;
+	u32 cci: 		32;
+	u32 tsi: 		32;
+	u32 toi: 		32;
+} GF_ROUTELCTHeader;
+
 static void gf_route_static_files_del(GF_List *files)
 {
 	while (gf_list_count(files)) {
@@ -1519,7 +1537,8 @@ static GF_Err gf_route_dmx_process_service_signaling(GF_ROUTEDmx *routedmx, GF_R
 static GF_Err gf_route_dmx_process_service(GF_ROUTEDmx *routedmx, GF_ROUTEService *s, GF_ROUTESession *route_sess)
 {
 	GF_Err e;
-	u32 nb_read, v, C, psi, S, O, H, /*Res, A,*/ B, hdr_len, cp, cc, tsi, toi, pos;
+	u32 nb_read, size_header, v, /* C, psi, S, O, H, Res, A, B, hdr_len, cp, cc, tsi, toi,*/ pos;
+	GF_ROUTELCTHeader header;
 	u32 /*a_G=0, a_U=0,*/ a_S=0, a_M=0/*, a_A=0, a_H=0, a_D=0*/;
 	u64 tol_size=0;
 	Bool in_order = GF_TRUE;
@@ -1544,69 +1563,74 @@ static GF_Err gf_route_dmx_process_service(GF_ROUTEDmx *routedmx, GF_ROUTEServic
 	e = gf_bs_reassign_buffer(routedmx->bs, routedmx->buffer, nb_read);
 	if (e != GF_OK) return e;
 
-	//parse LCT header
+	// parse LCT header
+	size_header = gf_bs_read_data(routedmx->bs, (u8*) &header, sizeof(header));
+	assert(size_header == sizeof(header));
+	/*
 	v = gf_bs_read_int(routedmx->bs, 4);
 	C = gf_bs_read_int(routedmx->bs, 2);
 	psi = gf_bs_read_int(routedmx->bs, 2);
 	S = gf_bs_read_int(routedmx->bs, 1);
 	O = gf_bs_read_int(routedmx->bs, 2);
 	H = gf_bs_read_int(routedmx->bs, 1);
-	/*Res = */gf_bs_read_int(routedmx->bs, 2);
-	/*A = */gf_bs_read_int(routedmx->bs, 1);
+	Res = gf_bs_read_int(routedmx->bs, 2);
+	A = gf_bs_read_int(routedmx->bs, 1);
 	B = gf_bs_read_int(routedmx->bs, 1);
 	hdr_len = gf_bs_read_int(routedmx->bs, 8);
 	cp = gf_bs_read_int(routedmx->bs, 8);
-
-	if (v!=1) {
-		GF_LOG(GF_LOG_ERROR, GF_LOG_ROUTE, ("[ROUTE] Service %d : wrong LCT header version %d\n", s->service_id, v));
+	*/
+	if (header.v!=1) {
+		GF_LOG(GF_LOG_ERROR, GF_LOG_ROUTE, ("[ROUTE] Service %d : wrong LCT header version %d\n", s->service_id, header.v));
 		return GF_NON_COMPLIANT_BITSTREAM;
 	}
-	else if (C!=0) {
-		GF_LOG(GF_LOG_ERROR, GF_LOG_ROUTE, ("[ROUTE] Service %d : wrong ROUTE LCT header C %d, expecting 0\n", s->service_id, C));
+	else if (header.C!=0) {
+		GF_LOG(GF_LOG_ERROR, GF_LOG_ROUTE, ("[ROUTE] Service %d : wrong ROUTE LCT header C %d, expecting 0\n", s->service_id, header.C));
 		return GF_NON_COMPLIANT_BITSTREAM;
 	}
-	else if ((psi!=0) && (psi!=2) ) {
-		GF_LOG(GF_LOG_ERROR, GF_LOG_ROUTE, ("[ROUTE] Service %d : wrong ROUTE LCT header PSI %d, expecting b00 or b10\n", s->service_id, psi));
+	else if ((header.psi!=0) && (header.psi!=2) ) {
+		GF_LOG(GF_LOG_ERROR, GF_LOG_ROUTE, ("[ROUTE] Service %d : wrong ROUTE LCT header PSI %d, expecting b00 or b10\n", s->service_id, header.psi));
 		return GF_NON_COMPLIANT_BITSTREAM;
 	}
-	else if (S!=1) {
+	else if (header.S!=1) {
 		GF_LOG(GF_LOG_ERROR, GF_LOG_ROUTE, ("[ROUTE] Service %d : wrong ROUTE LCT header S, shall be 1\n", s->service_id));
 		return GF_NON_COMPLIANT_BITSTREAM;
 	}
-	else if (O!=1) {
+	else if (header.O!=1) {
 		GF_LOG(GF_LOG_ERROR, GF_LOG_ROUTE, ("[ROUTE] Service %d : wrong ROUTE LCT header 0, shall be b01\n", s->service_id));
 		return GF_NON_COMPLIANT_BITSTREAM;
 	}
-	else if (H!=0) {
+	else if (header.H!=0) {
 		GF_LOG(GF_LOG_ERROR, GF_LOG_ROUTE, ("[ROUTE] Service %d : wrong ROUTE LCT header H, shall be 0\n", s->service_id));
 		return GF_NON_COMPLIANT_BITSTREAM;
 	}
-	if (hdr_len<4) {
-		GF_LOG(GF_LOG_ERROR, GF_LOG_ROUTE, ("[ROUTE] Service %d : wrong ROUTE LCT header len %d, shall be at least 4 0\n", s->service_id, hdr_len));
+	if (header.HDR_LEN<4) {
+		GF_LOG(GF_LOG_ERROR, GF_LOG_ROUTE, ("[ROUTE] Service %d : wrong ROUTE LCT header len %d, shall be at least 4 0\n", s->service_id, header.HDR_LEN));
 		return GF_NON_COMPLIANT_BITSTREAM;
 	}
 
-	if (psi==0) {
+	if (header.psi==0) {
 		GF_LOG(GF_LOG_WARNING, GF_LOG_ROUTE, ("[ROUTE] Service %d : FEC ROUTE not implemented\n", s->service_id));
 		return GF_NOT_SUPPORTED;
 	}
-
+	/* already read
 	cc = gf_bs_read_u32(routedmx->bs);
 	tsi = gf_bs_read_u32(routedmx->bs);
 	toi = gf_bs_read_u32(routedmx->bs);
-	hdr_len-=4;
+	*/
+	header.HDR_LEN-=4;
+	
 
 	//filter TSI if not 0 (service TSI) and debug mode set
-	if (routedmx->debug_tsi && tsi && (tsi!=routedmx->debug_tsi)) return GF_OK;
+	if (routedmx->debug_tsi && header.tsi && (header.tsi!=routedmx->debug_tsi)) return GF_OK;
 
 	//look for TSI 0 first
-	if (tsi!=0) {
+	if (header.tsi!=0) {
 		Bool cp_found = GF_FALSE;
 		u32 i=0;
 		Bool in_session = GF_FALSE;
 		if (s->tune_mode==GF_ROUTE_TUNE_SLS_ONLY) return GF_OK;
 
-		if (s->last_active_obj && (s->last_active_obj->tsi==tsi)) {
+		if (s->last_active_obj && (s->last_active_obj->tsi==header.tsi)) {
 			in_session = GF_TRUE;
 			rlct = s->last_active_obj->rlct;
 		} else {
@@ -1615,7 +1639,7 @@ static GF_Err gf_route_dmx_process_service(GF_ROUTEDmx *routedmx, GF_ROUTEServic
 			while ((rsess = gf_list_enum(s->route_sessions, &i))) {
 				u32 j=0;
 				while ((rlct = gf_list_enum(rsess->channels, &j))) {
-					if (rlct->tsi == tsi) {
+					if (rlct->tsi == header.tsi) {
 						in_session = GF_TRUE;
 						break;
 					}
@@ -1625,19 +1649,19 @@ static GF_Err gf_route_dmx_process_service(GF_ROUTEDmx *routedmx, GF_ROUTEServic
 			}
 		}
 		if (!in_session) {
-			GF_LOG(GF_LOG_DEBUG, GF_LOG_ROUTE, ("[ROUTE] Service %d : no session with TSI %u defined, skipping packet (TOI %u)\n", s->service_id, tsi, toi));
+			GF_LOG(GF_LOG_DEBUG, GF_LOG_ROUTE, ("[ROUTE] Service %d : no session with TSI %u defined, skipping packet (TOI %u)\n", s->service_id, header.tsi, header.toi));
 			return GF_OK;
 		}
 		for (i=0; rlct && i<rlct->nb_cps; i++) {
-			if (rlct->CPs[i].codepoint==cp) {
+			if (rlct->CPs[i].codepoint==header.cp) {
 				in_order = rlct->CPs[i].order;
 				cp_found = GF_TRUE;
 				break;
 			}
 		}
 		if (!cp_found) {
-			if ((cp==0) || (cp==2) || (cp>=9) ) {
-				GF_LOG(GF_LOG_DEBUG, GF_LOG_ROUTE, ("[ROUTE] Service %d : unsupported code point %d, skipping packet (TOI %u)\n", s->service_id, cp, toi));
+			if ((header.cp==0) || (header.cp==2) || (header.cp>=9) ) {
+				GF_LOG(GF_LOG_DEBUG, GF_LOG_ROUTE, ("[ROUTE] Service %d : unsupported code point %d, skipping packet (TOI %u)\n", s->service_id, header.cp, header.toi));
 				return GF_OK;
 			}
 		}
@@ -1645,12 +1669,12 @@ static GF_Err gf_route_dmx_process_service(GF_ROUTEDmx *routedmx, GF_ROUTEServic
 		//check TOI for TSI 0
 		//a_G = (toi & 0x80000000) /*(1<<31)*/ ? 1 : 0;
 		//a_U = (toi & (1<<16)) ? 1 : 0;
-		a_S = (toi & (1<<17)) ? 1 : 0;
-		a_M = (toi & (1<<18)) ? 1 : 0;
+		a_S = (header.toi & (1<<17)) ? 1 : 0;
+		a_M = (header.toi & (1<<18)) ? 1 : 0;
 		/*a_A = (toi & (1<<19)) ? 1 : 0;
 		a_H = (toi & (1<<22)) ? 1 : 0;
 		a_D = (toi & (1<<23)) ? 1 : 0;*/
-		v = toi & 0xFF;
+		v = header.toi & 0xFF;
 		//skip known version
 		if (a_M && (s->mpd_version == v+1)) a_M = 0;
 		if (a_S && (s->stsid_version == v+1)) a_S = 0;
@@ -1664,7 +1688,7 @@ static GF_Err gf_route_dmx_process_service(GF_ROUTEDmx *routedmx, GF_ROUTEServic
 	}
 
 	//parse extensions
-	while (hdr_len) {
+	while (header.HDR_LEN) {
 		u8 hel=0, het = gf_bs_read_u8(routedmx->bs);
 		if (het<128) hel = gf_bs_read_u8(routedmx->bs);
 
@@ -1695,23 +1719,23 @@ static GF_Err gf_route_dmx_process_service(GF_ROUTEDmx *routedmx, GF_ROUTEServic
 			GF_LOG(GF_LOG_DEBUG, GF_LOG_ROUTE, ("[ROUTE] Service %d : unsupported header extension HEL %d HET %d, ignoring\n", s->service_id, hel, het));
 			break;
 		}
-		if (hdr_len<hel) {
-			GF_LOG(GF_LOG_WARNING, GF_LOG_ROUTE, ("[ROUTE] Service %d : wrong HEL %d for LCT extension %d, remaining header size %d\n", s->service_id, hel, het, hdr_len));
+		if (header.HDR_LEN<hel) {
+			GF_LOG(GF_LOG_WARNING, GF_LOG_ROUTE, ("[ROUTE] Service %d : wrong HEL %d for LCT extension %d, remaining header size %d\n", s->service_id, hel, het, header.HDR_LEN));
 			continue;
 		}
-		if (hel) hdr_len -= hel;
-		else hdr_len -= 1;
+		if (hel) header.HDR_LEN -= hel;
+		else header.HDR_LEN -= 1;
 	}
 
 	start_offset = gf_bs_read_u32(routedmx->bs);
 	pos = (u32) gf_bs_get_position(routedmx->bs);
 
-	GF_LOG(GF_LOG_DEBUG, GF_LOG_ROUTE, ("[ROUTE] Service %d : LCT packet TSI %u TOI %u size %d startOffset %u TOL "LLU" (PckNum %d)\n", s->service_id, tsi, toi, nb_read-pos, start_offset, tol_size, routedmx->nb_packets));
+	GF_LOG(GF_LOG_DEBUG, GF_LOG_ROUTE, ("[ROUTE] Service %d : LCT packet TSI %u TOI %u size %d startOffset %u TOL "LLU" (PckNum %d)\n", s->service_id, header.tsi, header.toi, nb_read-pos, start_offset, tol_size, routedmx->nb_packets));
 
-	e = gf_route_service_gather_object(routedmx, s, tsi, toi, start_offset, routedmx->buffer + pos, nb_read-pos, (u32) tol_size, B, in_order, rlct, &gather_object);
+	e = gf_route_service_gather_object(routedmx, s, header.tsi, header.toi, start_offset, routedmx->buffer + pos, nb_read-pos, (u32) tol_size, header.B, in_order, rlct, &gather_object);
 
 	if (e==GF_EOS) {
-		if (!tsi) {
+		if (!header.tsi) {
 			if (gather_object->status==GF_LCT_OBJ_DONE_ERR) {
 				gf_route_obj_to_reservoir(routedmx, s, gather_object);
 				return GF_OK;
@@ -1719,7 +1743,7 @@ static GF_Err gf_route_dmx_process_service(GF_ROUTEDmx *routedmx, GF_ROUTEServic
 			//we don't assign version here, we use mbms envelope for that since the bundle may have several
 			//packages
 
-			gf_route_dmx_process_service_signaling(routedmx, s, gather_object, cc, a_S ? v : 0, a_M ? v : 0);
+			gf_route_dmx_process_service_signaling(routedmx, s, gather_object, header.cci, a_S ? v : 0, a_M ? v : 0);
 			//we don't release the LCT object, so that we can disard future versions
 		} else {
 			gf_route_dmx_process_object(routedmx, s, gather_object);
