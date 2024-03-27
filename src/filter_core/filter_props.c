@@ -88,34 +88,39 @@ Bool gf_props_type_is_enum(GF_PropType type)
 	return GF_FALSE;
 }
 
-static Bool parse_time(const char *str, u64 *val)
+static Bool parse_time(const char *str, u32 *val)
 {
-	u32 h=0, m=0, s=0, ms=0;
+	u32 h=0, m=0, s=0, hs=0;
 	if (!str) return GF_FALSE;
 	if ((str[0]!='t') && (str[0]!='T')) return GF_FALSE;
 	str += 1;
-	if (sscanf(str, "%02u:%02u:%02u.%02u", &h, &m, &s, &ms) == 4) {
+	if (sscanf(str, "%02u:%02u:%02u.%02u", &h, &m, &s, &hs)==4 && !*(str+11)) {
 	}
-	else if (sscanf(str, "%02u:%02u:%02u", &h, &m, &s) == 3) {
-		ms=0;
+	else if (sscanf(str, "%02u:%02u:%02u", &h, &m, &s)==3 && !*(str+8)) {
+		hs=0;
 	}
-	else if (sscanf(str, "%02u:%02u.%02u", &m, &s, &ms) == 3) {
+	else if (sscanf(str, "%02u:%02u.%02u", &m, &s, &hs)==3 && !*(str+8)) {
 		h=0;
 	}
-	else if (sscanf(str, "%02u:%02u", &m, &s) == 2) {
-		h=ms=0;
+	else if (sscanf(str, "%02u:%02u", &m, &s)==2 && !*(str+5)) {
+		h=hs=0;
+	} else {
+		return GF_FALSE;
+	}
+	if (m >= 60 || s >= 60) {
+		return GF_FALSE;
 	}
 	*val = 3600*h;
 	*val += 60*m;
 	*val += s;
-	*val = *val * 1000 + ms;
+	*val = *val * 1000 + hs * 10;
 	return GF_TRUE;
 }
 
 GF_PropertyValue gf_props_parse_value(u32 type, const char *name, const char *value, const char *enum_values, char list_sep_char)
 {
 	GF_PropertyValue p;
-	u64 tval;
+	u32 tval;
 	char *unit_sep=NULL;
 	s32 unit = 0;
 	memset(&p, 0, sizeof(GF_PropertyValue));
