@@ -258,6 +258,8 @@ static void route_repair_build_ranges_isobmf(ROUTEInCtx *ctx, RepairSegmentInfo 
 			rr->br_end = MAX(pos + 8, pos + min_size);
 			rr->priority = REPAIR_RANGE_HEADER;
 
+			GF_LOG(GF_LOG_INFO, GF_LOG_ROUTE, ("[REPAIR] adding repair range [%u, %u] \n", rr->br_start, rr->br_end));
+
 			gf_list_add(rsi->ranges, rr);
 			return;
 		} else {
@@ -283,8 +285,10 @@ static void route_repair_build_ranges_isobmf(ROUTEInCtx *ctx, RepairSegmentInfo 
 					}
 
 					rr->br_start = pos;
-					rr->br_end = MAX(pos + box_size + 8, pos + min_size);
+					rr->br_end = MAX(pos + box_size, pos + min_size);
 					rr->priority = REPAIR_RANGE_MOOF_BOX;
+
+					GF_LOG(GF_LOG_INFO, GF_LOG_ROUTE, ("[REPAIR] adding repair range [%u, %u] \n", rr->br_start, rr->br_end));
 
 					gf_list_add(rsi->ranges, rr);
 				}
@@ -343,6 +347,7 @@ static void route_repair_build_ranges_full(ROUTEInCtx *ctx, RepairSegmentInfo *r
 		}
 		rr->br_start = br_start;
 		rr->br_end = br_end;
+		rr->priority = REPAIR_RANGE_GAP;
 
 		gf_list_add(rsi->ranges, rr);
 	}
@@ -369,30 +374,7 @@ void routein_queue_repair(ROUTEInCtx *ctx, GF_ROUTEEventType evt, u32 evt_param,
 		if (strstr(finfo->filename, ".ts") || strstr(finfo->filename, ".m2ts")) {
 			drop_if_first = routein_repair_segment_ts_local(ctx, finfo);
 		} else {
-			rsi = gf_list_pop_back(ctx->seg_repair_reservoir);
-			if (!rsi) {
-				GF_SAFEALLOC(rsi, RepairSegmentInfo);
-				rsi->ranges = gf_list_new();
-			}
-			if (!rsi) {
-				GF_LOG(GF_LOG_INFO, GF_LOG_ROUTE, ("[REPAIR] Failed to allocate repair entry %s (TSI=%u, TOI=%u)\n", finfo->filename, finfo->tsi, finfo->toi));
-				routein_on_event_file(ctx, evt, evt_param, finfo, GF_FALSE, GF_FALSE);
-				return;
-			}
-			GF_LOG(GF_LOG_INFO, GF_LOG_ROUTE, ("[REPAIR] Queing repair for isobmf segment %s (TSI=%u, TOI=%u)\n", finfo->filename, finfo->tsi, finfo->toi));
-			rsi->evt = evt;
-			rsi->service_id = evt_param;
-			rsi->finfo = *finfo;
-
-			route_repair_build_ranges_isobmf(ctx, rsi, finfo, 0);
-			gf_mx_p(finfo->blob->mx);
-			if (finfo->blob->flags & GF_BLOB_IN_TRANSFER)
-				rsi->was_partial = GF_TRUE;
-			finfo->blob->flags |= GF_BLOB_IN_TRANSFER;
-			gf_mx_v(finfo->blob->mx);
-
-			gf_list_add(ctx->seg_repair_queue, rsi);
-			return;
+			routein_repair_segment_isobmf_local(ctx, finfo);
 		}
 
 		if (finfo->blob->mx)
@@ -424,7 +406,13 @@ void routein_queue_repair(ROUTEInCtx *ctx, GF_ROUTEEventType evt, u32 evt_param,
 	rsi->service_id = evt_param;
 	rsi->finfo = *finfo;
 
-	route_repair_build_ranges_full(ctx, rsi, finfo);
+	if(ctx->repair == ROUTEIN_REPAIR_FULL) {
+		route_repair_build_ranges_full(ctx, rsi, finfo);
+	} else if(ctx->repair == ROUTEIN_REPAIR_ISOBMF) {
+		route_repair_build_ranges_isobmf(ctx, rsi, finfo, 0);
+	} else {
+		GF_LOG(GF_LOG_WARNING, GF_LOG_ROUTE, ("[REPAIR] repair option not supported \n", ctx->repair));
+	}
 
 	gf_mx_p(finfo->blob->mx);
 	if (finfo->blob->flags & GF_BLOB_IN_TRANSFER)
@@ -539,8 +527,8 @@ restart:
 		gf_mx_v(rsi->finfo.blob->mx);
 		rsess->range->done += nb_read;
 		//TODO, update frag info
-		
-		if(rsess->range->priority == REPAIR_RANGE_HEADER && rsess->range->done > 8) {
+
+		if(rsess->range->priority == REPAIR_RANGE_HEADER && rsess->range->done > 8 && ctx->repair == ROUTEIN_REPAIR_ISOBMF) {
 			route_repair_build_ranges_isobmf(ctx, rsi, &(rsi->finfo), rsess->range->br_start);
 		}
 	}

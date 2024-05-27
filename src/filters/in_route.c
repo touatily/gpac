@@ -638,10 +638,8 @@ static GF_Err routein_initialize(GF_Filter *filter)
 
 	ctx->nb_playing = 1;
 	ctx->initial_play_forced = GF_TRUE;
-	// for test sake
-	//if (ctx->repair_url) ctx->repair = ROUTEIN_REPAIR_FULL;
 
-	if (ctx->repair > ROUTEIN_REPAIR_NO) {
+	if (ctx->repair >= ROUTEIN_REPAIR_FULL) {
 		if (!ctx->max_sess) ctx->max_sess = 1;
 		ctx->http_repair_sessions = gf_malloc(sizeof(RouteRepairSession)*ctx->max_sess);
 		memset(ctx->http_repair_sessions, 0, sizeof(RouteRepairSession)*ctx->max_sess);
@@ -690,8 +688,9 @@ static const GF_FilterArgs ROUTEInArgs[] =
 		"- no: no repair is performed\n"
 		"- simple: simple repair is performed (incomplete `mdat` boxes will be kept)\n"
 		"- strict: incomplete mdat boxes will be lost as well as preceding `moof` boxes\n"
-		"- full: HTTP-based repair, not yet implemented"
-		, GF_PROP_UINT, "simple", "no|simple|strict|full", GF_FS_ARG_HINT_EXPERT},
+		"- full: HTTP-based repair, not yet implemented\n"
+		"- isobmf: repair (potentially partially) isobmf based on sample dependencies" 
+		, GF_PROP_UINT, "simple", "no|simple|strict|full|isobmf", GF_FS_ARG_HINT_EXPERT},
 	{ OFFS(repair_url), "repair url", GF_PROP_NAME, NULL, NULL, 0},
 	{ OFFS(max_sess), "max number of concurrent HTTP repair sassions", GF_PROP_UINT, "1", NULL, 0},
 	{0}
