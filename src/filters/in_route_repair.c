@@ -97,7 +97,7 @@ static u32 next_top_level_box(GF_ROUTEEventFileInfo *finfo, u8 *data, u32 size, 
 		if (cur_frag==finfo->nb_frags)
 			return 0;
 	}
-		
+
     while (pos + 8 < size) {
         u32 i;
         u32 type_idx = 0;
@@ -222,6 +222,78 @@ static void routein_repair_segment_isobmf_local(ROUTEInCtx *ctx, GF_ROUTEEventFi
 	finfo->blob->flags &= ~GF_BLOB_CORRUPTED;
 }
 
+static Bool does_belong(GF_LCTFragInfo *frags, u32 nb_frags, u32 start, u32 size) {
+	// check if intervale [start, start+size[ belongs to frags list of intervales
+	u32 i;
+	if(start > GF_UINT_MAX - size) return GF_FALSE;
+	for(i=0; i < nb_frags; i++) {
+		if(start < frags[i].offset) return GF_FALSE;
+		if(start < frags[i].offset + frags[i].size) {
+			return start + size <= frags[i].offset + frags[i].size;
+		}
+	}
+	return GF_FALSE;
+}
+
+static void route_repair_build_ranges_isobmf(ROUTEInCtx *ctx, RepairSegmentInfo *rsi, GF_ROUTEEventFileInfo *finfo, int position) {
+	u32 pos = position;
+	u32 min_size = 1024;
+	u32 box_size, box_type;
+
+	while(pos+8 <= finfo->total_size) { // if
+
+		if(!does_belong(finfo->frags, finfo->nb_frags, pos, 8)) {
+			RouteRepairRange *rr = gf_list_pop_back(ctx->seg_range_reservoir);
+			if (!rr) {
+				GF_SAFEALLOC(rr, RouteRepairRange);
+				if (!rr) {
+					rsi->nb_errors++;
+					return;
+				}
+			} else {
+				memset(rr, 0, sizeof(RouteRepairRange));
+			}
+
+			rr->br_start = pos;
+			rr->br_end = MAX(pos + 8, pos + min_size);
+			rr->priority = REPAIR_RANGE_HEADER;
+
+			gf_list_add(rsi->ranges, rr);
+			return;
+		} else {
+			box_size = GF_4CC(finfo->blob->data[pos], finfo->blob->data[pos+1], finfo->blob->data[pos+2], finfo->blob->data[pos+3]);
+			box_type = GF_4CC(finfo->blob->data[pos+4], finfo->blob->data[pos+5], finfo->blob->data[pos+6], finfo->blob->data[pos+7]);
+			if(pos + box_size > finfo->total_size) {
+				GF_LOG(GF_LOG_WARNING, GF_LOG_ROUTE, ("[REPAIR] Corrupted data: top-level box range [%u, %u] exceeds segment size %u \n", pos, pos+box_size, finfo->total_size));
+				return;
+			}
+			if(box_type == GF_4CC('m', 'o', 'o', 'f')) {
+				if(!does_belong(finfo->frags, finfo->nb_frags, pos, box_size)) {
+					RouteRepairRange *rr = gf_list_pop_back(ctx->seg_range_reservoir);
+					if (!rr) {
+						GF_SAFEALLOC(rr, RouteRepairRange);
+						if (!rr) {
+							rsi->nb_errors++;
+							// check next box
+							pos += box_size;
+							continue;
+						}
+					} else {
+						memset(rr, 0, sizeof(RouteRepairRange));
+					}
+
+					rr->br_start = pos;
+					rr->br_end = MAX(pos + box_size + 8, pos + min_size);
+					rr->priority = REPAIR_RANGE_MOOF_BOX;
+
+					gf_list_add(rsi->ranges, rr);
+				}
+			}
+			pos += box_size;
+		}
+	}
+}
+
 static void route_repair_build_ranges_full(ROUTEInCtx *ctx, RepairSegmentInfo *rsi, GF_ROUTEEventFileInfo *finfo)
 {
 	u32 i;
@@ -280,6 +352,7 @@ static void route_repair_build_ranges_full(ROUTEInCtx *ctx, RepairSegmentInfo *r
 void routein_queue_repair(ROUTEInCtx *ctx, GF_ROUTEEventType evt, u32 evt_param, GF_ROUTEEventFileInfo *finfo)
 {
 	//TODO handle late data
+	RepairSegmentInfo *rsi;
 	if (evt==GF_ROUTE_EVT_LATE_DATA) {
 		GF_LOG(GF_LOG_ERROR, GF_LOG_ROUTE, ("[ROUTE] Late data patching not yet implemented !\n"));
 		return;
@@ -296,7 +369,30 @@ void routein_queue_repair(ROUTEInCtx *ctx, GF_ROUTEEventType evt, u32 evt_param,
 		if (strstr(finfo->filename, ".ts") || strstr(finfo->filename, ".m2ts")) {
 			drop_if_first = routein_repair_segment_ts_local(ctx, finfo);
 		} else {
-			routein_repair_segment_isobmf_local(ctx, finfo);
+			rsi = gf_list_pop_back(ctx->seg_repair_reservoir);
+			if (!rsi) {
+				GF_SAFEALLOC(rsi, RepairSegmentInfo);
+				rsi->ranges = gf_list_new();
+			}
+			if (!rsi) {
+				GF_LOG(GF_LOG_INFO, GF_LOG_ROUTE, ("[REPAIR] Failed to allocate repair entry %s (TSI=%u, TOI=%u)\n", finfo->filename, finfo->tsi, finfo->toi));
+				routein_on_event_file(ctx, evt, evt_param, finfo, GF_FALSE, GF_FALSE);
+				return;
+			}
+			GF_LOG(GF_LOG_INFO, GF_LOG_ROUTE, ("[REPAIR] Queing repair for isobmf segment %s (TSI=%u, TOI=%u)\n", finfo->filename, finfo->tsi, finfo->toi));
+			rsi->evt = evt;
+			rsi->service_id = evt_param;
+			rsi->finfo = *finfo;
+
+			route_repair_build_ranges_isobmf(ctx, rsi, finfo, 0);
+			gf_mx_p(finfo->blob->mx);
+			if (finfo->blob->flags & GF_BLOB_IN_TRANSFER)
+				rsi->was_partial = GF_TRUE;
+			finfo->blob->flags |= GF_BLOB_IN_TRANSFER;
+			gf_mx_v(finfo->blob->mx);
+
+			gf_list_add(ctx->seg_repair_queue, rsi);
+			return;
 		}
 
 		if (finfo->blob->mx)
@@ -311,7 +407,7 @@ void routein_queue_repair(ROUTEInCtx *ctx, GF_ROUTEEventType evt, u32 evt_param,
 	}
 
 	//queue up our repair
-	RepairSegmentInfo *rsi = gf_list_pop_back(ctx->seg_repair_reservoir);
+	rsi = gf_list_pop_back(ctx->seg_repair_reservoir);
 	if (!rsi) {
 		GF_SAFEALLOC(rsi, RepairSegmentInfo);
 		rsi->ranges = gf_list_new();
@@ -443,6 +539,10 @@ restart:
 		gf_mx_v(rsi->finfo.blob->mx);
 		rsess->range->done += nb_read;
 		//TODO, update frag info
+		
+		if(rsess->range->priority == REPAIR_RANGE_HEADER && rsess->range->done > 8) {
+			route_repair_build_ranges_isobmf(ctx, rsi, &(rsi->finfo), rsess->range->br_start);
+		}
 	}
 	if (e==GF_OK) return;
 

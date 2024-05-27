@@ -57,12 +57,17 @@ enum
 
 typedef struct _route_repair_seg_info RepairSegmentInfo;
 
+typedef enum {
+	REPAIR_RANGE_MOOF_BOX = 0,
+	REPAIR_RANGE_HEADER,
+} REPAIR_RANGE_PRIORITY;
+
 typedef struct
 {
 	u32 br_start;
 	u32 br_end;
 	u32 done;
-	u32 priority;
+	REPAIR_RANGE_PRIORITY priority;
 } RouteRepairRange;
 
 

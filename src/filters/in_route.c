@@ -638,9 +638,10 @@ static GF_Err routein_initialize(GF_Filter *filter)
 
 	ctx->nb_playing = 1;
 	ctx->initial_play_forced = GF_TRUE;
-	if (ctx->repair_url) ctx->repair = ROUTEIN_REPAIR_FULL;
+	// for test sake
+	//if (ctx->repair_url) ctx->repair = ROUTEIN_REPAIR_FULL;
 
-	if (ctx->repair == ROUTEIN_REPAIR_FULL) {
+	if (ctx->repair > ROUTEIN_REPAIR_NO) {
 		if (!ctx->max_sess) ctx->max_sess = 1;
 		ctx->http_repair_sessions = gf_malloc(sizeof(RouteRepairSession)*ctx->max_sess);
 		memset(ctx->http_repair_sessions, 0, sizeof(RouteRepairSession)*ctx->max_sess);
