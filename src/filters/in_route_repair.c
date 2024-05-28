@@ -27,6 +27,131 @@
 
 #ifndef GPAC_DISABLE_ROUTE
 
+
+
+#include <gpac/isomedia.h>
+typedef struct __sample_dep
+{
+	//byte offset in file for the start of the range
+	u32 offset;
+	//size of the range
+	u32 size;
+	//ID of the range
+	u16 id;
+	//ID of the highest dependent range required to process the range
+	//if dep_id == id, sample is random access
+	u16 dep_id;
+	//1: random access
+	//2: leaf temporal level, discardable right away
+	u8 type;
+} SampleRangeDependency;
+
+//simple dependency extraction from isobmff:
+//if error returns GF_FALSE, otherwise GF_TRUE
+//if all samples are random access point, ranges is set to NULL and nb_ranges set to 0
+//otherwise ranges is allocated with the dependency list
+//the function is very basic and will need further rework, listng all direct reference samples
+static Bool routein_repair_get_isobmf_deps(char *seg_name, GF_Blob *blob, SampleRangeDependency **out_ranges, u32 *nb_ranges)
+{
+	GF_ISOFile *file;
+	u64 BytesMissing;
+	u32 i, count;
+	SampleRangeDependency *ranges;
+	char szBlobPath[100];
+	if ((!blob && !seg_name) || !out_ranges || !nb_ranges) return GF_FALSE;
+	*out_ranges = NULL;
+	*nb_ranges = 0;
+	GF_Err e = gf_isom_open_progressive_ex("isobmff://", 0, 0, 0, &file, &BytesMissing, NULL);
+	if (e) return GF_FALSE;
+	if (blob) {
+		sprintf(szBlobPath, "gmem://%p", blob);
+		e = gf_isom_open_segment(file, szBlobPath, 0, 0, 0);
+	} else {
+		e = gf_isom_open_segment(file, seg_name, 0, 0, 0);
+	}
+	if (e) {
+		gf_isom_delete(file);
+		return GF_FALSE;
+	}
+	s32 max_cts_o = (s32) gf_isom_get_max_sample_cts_offset(file, 1);
+	s32 min_cts_o = gf_isom_get_min_negative_cts_offset(file, 1, GF_ISOM_MIN_NEGCTTS_ANY);
+
+	count = gf_isom_get_sample_count(file, 1);
+	if (!max_cts_o || !count) {
+		gf_isom_delete(file);
+		return GF_TRUE;
+	}
+
+	ranges = gf_malloc(sizeof(SampleRangeDependency)*count);
+	memset(ranges, 0, sizeof(SampleRangeDependency)*count);
+	*out_ranges = ranges;
+	*nb_ranges = count;
+
+	GF_ISOSample static_sample;
+	s32 ctso_last_sap = -1;
+	s32 max_ctso = -1;
+	u32 cur_id_sap = 0;
+	u32 cur_id_p = 0;
+	u32 nb_levels=0;
+	for (i=0; i<count; i++) {
+		SampleRangeDependency *r = &ranges[i];
+		u64 offset;
+		s32 cts_offset;
+		memset(&static_sample, 0, sizeof(static_sample));
+		GF_ISOSample *samp = gf_isom_get_sample_info_ex(file, 1, i+1, NULL, &offset, &static_sample);
+		if (!samp) break;
+		r->size = samp->dataLength;
+		r->offset = (u32) offset;
+		cts_offset = samp->CTS_Offset;
+		//translate to unsigned cts offset
+		if (min_cts_o<0) cts_offset -= cts_offset;
+
+		if (samp->IsRAP) {
+			ctso_last_sap = cts_offset;
+			max_ctso = -1;
+			cur_id_sap += cur_id_p + nb_levels+1;
+			r->id = cur_id_sap;
+			r->dep_id = cur_id_sap;
+			cur_id_p = cur_id_sap;
+			nb_levels = 0;
+			r->type = 1;
+			continue;
+		}
+		if ((max_ctso<0) || (cts_offset==max_ctso)) {
+			max_ctso = cts_offset;
+			cur_id_p += nb_levels+1;
+			nb_levels = 1;
+			r->id = cur_id_p;
+			r->dep_id = cur_id_sap;
+			continue;
+		}
+		if (cts_offset) {
+			nb_levels = 2;
+			r->id = cur_id_p+1;
+			r->dep_id = cur_id_p;
+			continue;
+		}
+		if (nb_levels == 2) nb_levels = 3;
+		else if (nb_levels==1) nb_levels = 2;
+		r->id = cur_id_p + nb_levels-1;
+		r->dep_id = cur_id_p + nb_levels-2;
+		r->type = 2;
+	}
+	gf_isom_delete(file);
+
+#ifndef GPAC_DISABLE_LOG
+	if (gf_log_tool_level_on(GF_LOG_ROUTE, GF_LOG_DEBUG)) {
+		GF_LOG(GF_LOG_DEBUG, GF_LOG_ROUTE, ("[ROUTE] Range dependency for file %s\n", seg_name ? seg_name : szBlobPath));
+		for (i=0; i<count; i++) {
+			SampleRangeDependency *r = &ranges[i];
+			GF_LOG(GF_LOG_DEBUG, GF_LOG_ROUTE, ("\t#%d size %u offset %u ID %u depends on range ID %u\n", i+1, r->size, r->offset, r->id, r->dep_id));
+		}
+	}
+#endif
+	return GF_TRUE;
+}
+
+
 //patch TS file, replacing all 188 bytes packets overlaping a gap by padding packets
 static Bool routein_repair_segment_ts_local(ROUTEInCtx *ctx, GF_ROUTEEventFileInfo *finfo)
 {

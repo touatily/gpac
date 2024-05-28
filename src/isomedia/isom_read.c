@@ -267,9 +267,11 @@ static GF_Err isom_create_init_from_mem(const char *fileName, GF_ISOFile *file)
 	}
 	else if (!stricmp(sz4cc, "AACL")) {
 	}
-	else {
+	else if (sz4cc[0]) {
 		GF_LOG(GF_LOG_WARNING, GF_LOG_CONTAINER, ("[iso file] Cannot convert smooth media type %s to ISO init segment\n", sz4cc));
 		return GF_NOT_SUPPORTED;
+	} else {
+		file->FragmentsFlags = GF_ISOM_FRAG_READ_NO_MOOV;
 	}
 
 	file->moov = (GF_MovieBox *) gf_isom_box_new(GF_ISOM_BOX_TYPE_MOOV);

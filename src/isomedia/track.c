@@ -505,10 +505,14 @@ GF_Err MergeTrack(GF_TrackBox *trak, GF_TrackFragmentBox *traf, GF_MovieFragment
 	//setup all our defaults
 	DescIndex = (traf->tfhd->flags & GF_ISOM_TRAF_SAMPLE_DESC) ? traf->tfhd->sample_desc_index : traf->trex->def_sample_desc_index;
 	if (!DescIndex) {
-		GF_LOG(GF_LOG_ERROR, GF_LOG_CONTAINER, ("[iso file] default sample description set to 0, likely broken ! Fixing to 1\n" ));
+		if (!(trak->moov->mov->FragmentsFlags & GF_ISOM_FRAG_READ_NO_MOOV)) {
+			GF_LOG(GF_LOG_ERROR, GF_LOG_CONTAINER, ("[iso file] default sample description set to 0, likely broken ! Fixing to 1\n" ));
+		}
 		DescIndex = 1;
 	} else if (DescIndex > gf_list_count(trak->Media->information->sampleTable->SampleDescription->child_boxes)) {
-		GF_LOG(GF_LOG_ERROR, GF_LOG_CONTAINER, ("[iso file] default sample description set to %d but only %d sample description(s), likely broken ! Fixing to 1\n", DescIndex, gf_list_count(trak->Media->information->sampleTable->SampleDescription->child_boxes)));
+		if (!(trak->moov->mov->FragmentsFlags & GF_ISOM_FRAG_READ_NO_MOOV)) {
+			GF_LOG(GF_LOG_ERROR, GF_LOG_CONTAINER, ("[iso file] default sample description set to %d but only %d sample description(s), likely broken ! Fixing to 1\n", DescIndex, gf_list_count(trak->Media->information->sampleTable->SampleDescription->child_boxes)));
+		}
 		DescIndex = 1;
 	}
 #ifdef GF_ENABLE_CTRN
@@ -660,6 +664,16 @@ GF_Err MergeTrack(GF_TrackBox *trak, GF_TrackFragmentBox *traf, GF_MovieFragment
 #endif
 	i=0;
 	while ((trun = (GF_TrackFragmentRunBox *)gf_list_enum(traf->TrackRuns, &i))) {
+
+		//file loaded without moov and tfhd does not override default flags:
+		//if first sample flag is set, reset defaults to non-sync
+		if ((trak->moov->mov->FragmentsFlags & GF_ISOM_FRAG_READ_NO_MOOV)
+			&& !(traf->tfhd->flags & GF_ISOM_TRAF_SAMPLE_FLAGS)
+			&& (trun->flags & GF_ISOM_TRUN_FIRST_FLAG)
+		) {
+			def_flags = 0x10000;
+		}
+
 		//merge the run
 		for (j=0; j<trun->sample_count; j++) {
 			GF_Err e;
