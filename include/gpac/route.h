@@ -215,11 +215,11 @@ GF_Err gf_route_dmx_process(GF_ROUTEDmx *routedmx);
 
 /*! Sets reordering on.
 \param routedmx the ROUTE demultiplexer
-\param force_reorder if TRUE, the order flag in ROUTE/LCT is ignored and objects are gathered for the given time. Otherwise, if order flag is set in ROUTE/LCT, an object is considered done as soon as a new object starts
-\param timeout_ms maximum delay to wait before considering the object is done when ROUTE/LCT order is not used. A value of 0 implies waiting forever (default value is 5s).
+\param reorder_needed if TRUE, the order flag in ROUTE/LCT is ignored and objects are gathered for the given time. Otherwise, if order flag is set in ROUTE/LCT, an object is considered done as soon as a new object starts
+\param timeout_us maximum delay in microseconds to wait before considering the object is done when ROUTE/LCT order is not used. A value of 0 implies any out-of-order packet triggers a download completion  (default value is 1 ms).
 \return error code if any
  */
-GF_Err gf_route_set_reorder(GF_ROUTEDmx *routedmx, Bool force_reorder, u32 timeout_ms);
+GF_Err gf_route_set_reorder(GF_ROUTEDmx *routedmx, Bool reorder_needed, u32 timeout_us);
 
 /*! Allow segments to be sent while being downloaded.
  
@@ -230,13 +230,6 @@ GF_Err gf_route_set_reorder(GF_ROUTEDmx *routedmx, Bool force_reorder, u32 timeo
 \return error code if any
  */
 GF_Err gf_route_set_allow_progressive_dispatch(GF_ROUTEDmx *routedmx, Bool allow_progressive);
-
-/*! Sets maximum number of object per session, mostly used for regulation when reading from pcap
-\param routedmx the ROUTE demultiplexer
-\param max_cache  max number of objects per media stream in the session. If 0, no maximum applies
-\return error code if any
- */
-GF_Err gf_route_set_max_cache(GF_ROUTEDmx *routedmx, u32 max_cache);
 
 /*! Sets the service ID to tune into for ATSC 3.0
 \param routedmx the ROUTE demultiplexer
@@ -347,6 +340,18 @@ void *gf_route_dmx_get_service_udta(GF_ROUTEDmx *routedmx, u32 service_id);
 \return error if any
  */
 GF_Err gf_routedmx_patch_frag_info(GF_ROUTEDmx *routedmx, u32 service_id, GF_ROUTEEventFileInfo *finfo, u32 br_start, u32 br_end);
+
+/*! Set active status of a representation
+\param routedmx the ROUTE demultiplexer
+\param service_id the target service
+\param period_id ID of the DASH period containing the representation, may be NULL
+\param as_id ID of the DASH adaptation set containing the representation, may be 0
+\param rep_id ID of the period containing the representation or HLS variant playlist URL, shall not be NULL
+\param is_selected representation status
+\return error if any
+ */
+GF_Err gf_routedmx_mark_active_quality(GF_ROUTEDmx *routedmx, u32 service_id, const char *period_id, s32 as_id, const char *rep_id, Bool is_selected);
+
 
 /*! @} */
 #ifdef __cplusplus

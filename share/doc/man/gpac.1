@@ -165,6 +165,11 @@ specify an output file to wrap as GF_FileIO object (testing of GF_FileIO)
 force complete mode when no link directive are set - see filters help (-h doc)
 .br
 .TP
+.B \-sid
+.br
+force source IDs to be present when attempting to link - see filters help (-h doc)
+.br
+.TP
 .B \-step
 .br
 test step mode in non-blocking session
@@ -882,6 +887,11 @@ use buffered IO instead of file descriptor for read/write - this can speed up op
 disable all mutexes, threads and semaphores (do not use if unsure about threading used)
 .br
 .TP
+.B \-xml-max-csize (int, default: 100k)
+.br
+maximum XML content or attribute size
+.br
+.TP
 .B \-netcap (string)
 .br
 set packet capture and filtering rules formatted as [CFG][RULES]. Each -netcap argument will define a configuration
@@ -900,23 +910,25 @@ set packet capture and filtering rules formatted as [CFG][RULES]. Each -netcap a
 .br
 [RULES] is an optional list of [OPT,OPT2...] with OPT in:
 .br
-* m=N: set rule mode - N can be r for reception only (default), w for send only or rw for both
+* m=K: set rule mode - K can be r for reception only (default), w for send only or rw for both
 .br
-* s=N: set packet start range to N
+* s=K: set packet start range to K
 .br
-* e=N: set packet end range to N (only used for r and f rules)
+* e=K: set packet end range to K - only used for r and f rules, 0 or not set means rule apply until end
 .br
-* n=N: set number of packets to drop to N - not set, 0 or 1 means single packet
+* n=K: set number of packets to drop to K - not set, 0 or 1 means single packet
 .br
-* r=N: random drop one packet every N
+* r=K: random drop n packet every K
 .br
-* f=N: drop first packet every N
+* f=K: drop first n packets every K
 .br
-* p=P: local port number to filter, if not set the rule applies to all packets
+* d=K: reorder n packets after the next K packets, can be used with f or r rules
 .br
-* o=N: patch packet instead of droping (always true for TCP), replacing byte at offset N (0 is first byte, <0 for random)
+* p=K: filter packets on port K only, if not set the rule applies to all packets
 .br
-* v=N: set patch byte value to N (hexa) or negative value for random (default)
+* o=K: patch packet instead of droping (always true for TCP), replacing byte at offset K (0 is first byte, <0 for random)
+.br
+* v=K: set patch byte value to K (hexa) or negative value for random (default)
 .br
 
 .br
@@ -1737,6 +1749,8 @@ For each filter DST accepting a connection from the PID, directly or with interm
 In all linking modes, a filter can prevent being linked to a filter with no link directives by setting RSID option on the filter.
 .br
 This is typically needed when dynamically inserting/removing filters in an existing session where some filters have no ID defined and are not desired for the inserted chain.
+.br
+A filter with RSID set is not clonable.
 .br
 
 .br

@@ -2543,7 +2543,7 @@ uncv (enum, default: prof):    use uncv (ISO 23001-17) for raw video
 .br
 trunv1 (bool, default: false): force using version 1 of trun regardless of media type or CMAF brand
 .br
-rsot (bool, default: false):   inject redundant sample timing info when ^resent
+rsot (bool, default: false):   inject redundant sample timing information when present
 .br
 
 .br
@@ -2747,7 +2747,7 @@ dv_compatid (enum, default: auto): cross-compatibility ID for DolbyVision
 .br
 
 .br
-bsdbg (enum, default: off):    debug NAL parsing in parser@debug logs
+bsdbg (enum, default: off):    debug NAL parsing in media@debug logs
 .br
 * off: not enabled
 .br
@@ -6621,7 +6621,7 @@ The cached MPD is assigned the following headers:
 .br
 * `x-route-ll`: boolean value, if yes indicates that the indicated first segment is currently being received (low latency signaling).
 .br
-* `x-route-loop`: boolean value, if yes indicates a loop in the service has been detected (usually pcap replay loop).
+* `x-route-loop`: boolean value, if yes indicates a loop (e.g. pcap replay) in the service has been detected - only checked if .I cloop is set.
 .br
   
 .br
@@ -6744,9 +6744,11 @@ max_segs (uint, default: 0):   maximum number of segments to keep on disk
 .br
 odir (str):                    output directory for standalone mode
 .br
-reorder (bool, default: false): ignore order flag in ROUTE/LCT packets, avoiding considering object done when TOI changes
+reorder (bool, default: true): consider packets are not always in order - if false, this will evaluate an LCT object as done when TOI changes
 .br
-rtimeout (uint, default: 5000): default timeout in ms to wait when gathering out-of-order packets
+cloop (bool, default: false):  check for loops based on TOI (used for capture replay)
+.br
+rtimeout (uint, default: 1000): default timeout in us to wait when gathering out-of-order packets
 .br
 fullseg (bool, default: false): only dispatch full segments in cache mode (always true for other modes)
 .br
@@ -6758,9 +6760,13 @@ repair (enum, default: simple): repair mode for corrupted files
 .br
 * strict: incomplete mdat boxes will be lost as well as preceding moof boxes
 .br
-* full: HTTP-based repair, not yet implemented
+* full: HTTP-based repair of all lost packets
 .br
 
+.br
+repair_url (cstr):             repair url
+.br
+max_sess (uint, default: 1):   max number of concurrent HTTP repair sessions
 .br
 
 .br
@@ -10422,6 +10428,34 @@ Properties for sourceURL objects
 .P
 .B
 Notes
+.br
+The special URL scheme ipid:// can be used to locate an input pid by link directives.
+.br
+Example
+.br
+in=ipid://#foo=bar
+.br
+
+.br
+This will use pids having property foo with value bar, regardless of source filter ID.
+.br
+
+.br
+Example
+.br
+in=ipid://TEST#foo=bar
+.br
+
+.br
+This will use pids having property foo with value bar coming from filter with ID TEST.
+.br
+
+.br
+When using the ipid:// scheme, filter chains cannot be specified (in accepts a single argument) and port is ignored.
+.br
+The syntax for link directive is the same as in gpac. However, if a listed property is not found on the input pid, the matching will fail.
+.br
+
 .br
 When launching a child process, the input filter is created first and the child process launched afterwards.
 .br

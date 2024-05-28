@@ -1366,6 +1366,8 @@ enum
 
 	//PID has temi information
 	GF_PROP_PID_HAS_TEMI = GF_4CC('P','T','E','M'),
+	//PID has SCTE35 information and PID number
+	GF_PROP_PID_SCTE35_PID = GF_4CC('S','C','3','5'),
 	//PID has no init segment associated (file forward mode of dasher)
 	GF_PROP_PID_NO_INIT = GF_4CC('P','N','I','N'),
 
@@ -1709,7 +1711,7 @@ typedef enum
 	GF_FEVT_BUFFER_REQ,
 	/*! filter session capability change, sent whenever global capabilities (max width, max height, ... ) are changed*/
 	GF_FEVT_CAPS_CHANGE,
-	/*! inidicates the PID could not be connected - the PID passed is an output PID of the filter, no specific event structure is associated*/
+	/*! indicates the PID could not be connected - the PID passed is an output PID of the filter, no specific event structure is associated*/
 	GF_FEVT_CONNECT_FAIL,
 	/*! user event, sent from compositor/vout down to filters*/
 	GF_FEVT_USER,
@@ -1725,6 +1727,8 @@ typedef enum
 	GF_FEVT_ENCODE_HINTS,
 	/*! NTP source clock send by other services (eg from TS to dash using TEMI) */
 	GF_FEVT_NTP_REF,
+	/*! Event sent by DASH/HLS demux to source to notify a quality change  - used for ROUTE/MABR only */
+	GF_FEVT_DASH_QUALITY_SELECT
 } GF_FEventType;
 
 /*! type: the type of the event*/
@@ -1950,6 +1954,33 @@ typedef struct
 
 } GF_FEVT_NTPRef;
 
+/*! Quality selection state*/
+typedef enum
+{
+	/*! Quality is selected*/
+	GF_QUALITY_SELECTED = 0,
+	/*! Quality is not selected*/
+	GF_QUALITY_UNSELECTED,
+	/*! Quality is disabled and will never be selected*/
+	GF_QUALITY_DISABLED
+} GF_QualtitySelectionState;
+
+/*! Event structure for GF_FEVT_DASH_QUALITY_SELECT*/
+typedef struct
+{
+	FILTER_EVENT_BASE
+	/*! service ID as advertised by the source PID carrying the manifest*/
+	u32 service_id;
+	/*! ID of period */
+	const char *period_id;
+	/*! ID of adaptation set */
+	s32 as_id;
+	/*! ID of representation for DASH, URL of variant playlist for HLS */
+	const char *rep_id;
+	/*! selection state */
+	GF_QualtitySelectionState select_type;
+} GF_FEVT_DASHQualitySelection;
+
 /*!
 Filter Event object
  */
@@ -1968,6 +1999,7 @@ union __gf_filter_event
 	GF_FEVT_FileDelete file_del;
 	GF_FEVT_EncodeHints encode_hints;
 	GF_FEVT_NTPRef ntp;
+	GF_FEVT_DASHQualitySelection dash_select;
 };
 
 /*! Gets readable name for event type

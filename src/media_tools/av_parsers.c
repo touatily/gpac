@@ -3626,7 +3626,7 @@ static void av1_parse_uncompressed_header(GF_BitStream *bs, AV1State *state)
 	s32 DeltaQVDc = 0;
 	s32 DeltaQVAc = 0;
 	s32 DeltaQYDc = av1_delta_q(bs, "DeltaQYDc_coded", "DeltaQYDc");
-	if (!state->config->monochrome) {
+	if (!state->config || !state->config->monochrome) {
 		u8 diff_uv_delta = 0;
 		if (state->separate_uv_delta_q)
 			diff_uv_delta = gf_bs_read_int_log(bs, 1, "diff_uv_delta");
@@ -4298,7 +4298,7 @@ GF_Err gf_av1_parse_obu(GF_BitStream *bs, ObuType *obu_type, u64 *obu_size, u32 
 		break;
 	case OBU_TEMPORAL_DELIMITER:
 		state->frame_state.seen_frame_header = GF_FALSE;
-		state->clli_valid = state->mdcv_valid = 0;
+		// fallthru
 	case OBU_PADDING:
 		gf_bs_seek(bs, pos + *obu_size);
 		break;
@@ -9192,6 +9192,52 @@ Bool gf_ac3_parser_bs(GF_BitStream *bs, GF_AC3Config *hdr, Bool full_parse)
 	gf_bs_seek(bs, pos);
 
 	return GF_TRUE;
+}
+
+GF_EXPORT
+u64 gf_ac3_get_channel_layout(GF_AC3Config *ac3)
+{
+	u64 layout = 0;
+	switch (ac3->streams[0].acmod) {
+	case 0:
+		layout |= GF_AUDIO_CH_FRONT_LEFT | GF_AUDIO_CH_FRONT_RIGHT;
+		break;
+	case 1:
+		layout |= GF_AUDIO_CH_FRONT_CENTER;
+		break;
+	case 2:
+		layout |= GF_AUDIO_CH_FRONT_LEFT | GF_AUDIO_CH_FRONT_RIGHT;
+		break;
+	case 3:
+		layout |= GF_AUDIO_CH_FRONT_LEFT | GF_AUDIO_CH_FRONT_RIGHT | GF_AUDIO_CH_FRONT_CENTER;
+		break;
+	case 4:
+		layout |= GF_AUDIO_CH_FRONT_LEFT | GF_AUDIO_CH_FRONT_RIGHT | GF_AUDIO_CH_REAR_CENTER;
+		break;
+	case 5:
+		layout |= GF_AUDIO_CH_FRONT_LEFT | GF_AUDIO_CH_FRONT_RIGHT | GF_AUDIO_CH_FRONT_CENTER | GF_AUDIO_CH_REAR_CENTER;
+		break;
+	case 6:
+		layout |= GF_AUDIO_CH_FRONT_LEFT | GF_AUDIO_CH_FRONT_RIGHT | GF_AUDIO_CH_SURROUND_LEFT | GF_AUDIO_CH_SURROUND_RIGHT;
+		break;
+	case 7:
+		layout |= GF_AUDIO_CH_FRONT_LEFT | GF_AUDIO_CH_FRONT_RIGHT | GF_AUDIO_CH_SURROUND_LEFT | GF_AUDIO_CH_FRONT_CENTER | GF_AUDIO_CH_SURROUND_RIGHT;
+		break;
+	}
+	if (ac3->streams[0].lfon) layout |= GF_AUDIO_CH_LFE;
+	if (ac3->streams[0].nb_dep_sub) {
+		u32 chan_loc = ac3->streams[0].chan_loc;
+		if (chan_loc & 1) layout |= GF_AUDIO_CH_FRONT_CENTER_LEFT | GF_AUDIO_CH_FRONT_CENTER_RIGHT; //Lc/Rc pair
+		if (chan_loc & (1<<1)) layout |= GF_AUDIO_CH_REAR_SURROUND_LEFT|GF_AUDIO_CH_REAR_SURROUND_RIGHT; //Lrs/Rrs pair
+		if (chan_loc & (1<<2)) layout |= GF_AUDIO_CH_REAR_CENTER; //Cs
+		if (chan_loc & (1<<3)) layout |= GF_AUDIO_CH_REAR_CENTER_TOP; //Ts
+		if (chan_loc & (1<<4)) layout |= GF_AUDIO_CH_SIDE_SURROUND_LEFT | GF_AUDIO_CH_SIDE_SURROUND_RIGHT; //Lsd/Rsd pair
+		if (chan_loc & (1<<5)) layout |= GF_AUDIO_CH_WIDE_FRONT_LEFT | GF_AUDIO_CH_WIDE_FRONT_RIGHT ; //Lw/Rw pair
+		if (chan_loc & (1<<6)) layout |= GF_AUDIO_CH_FRONT_TOP_LEFT | GF_AUDIO_CH_FRONT_TOP_RIGHT; //Lvh/Rvh pair
+		if (chan_loc & (1<<7)) layout |= GF_AUDIO_CH_FRONT_TOP_CENTER; //Cvh
+		if (chan_loc & (1<<8)) layout |= GF_AUDIO_CH_LFE2; //LFE2
+	}
+	return layout;
 }
 
 GF_EXPORT

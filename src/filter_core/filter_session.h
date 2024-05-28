@@ -259,7 +259,7 @@ struct __gf_filter_pck
 
 	GF_FilterFrameInterface *frame_ifce;
 	
-	// properties applying to this packet
+	//properties applying to this packet
 	GF_PropertyMap *props;
 	//pid properties applying to this packet
 	GF_PropertyMap *pid_props;
@@ -268,7 +268,6 @@ struct __gf_filter_pck
 	//note that packets with frame_ifce are always considered as read-only memory
 	u8 filter_owns_mem;
 	u8 is_dangling;
-
 };
 
 /*!
@@ -1106,7 +1105,6 @@ struct __gf_filter_pid
 	volatile u32 num_pidinst_del_pending;
 
 	u32 link_flags;
-
 };
 
 
@@ -1293,6 +1291,10 @@ GF_PropertyValue gf_filter_parse_prop_solve_env_var(GF_FilterSession *fs, GF_Fil
 
 //check if item can be added to a reservoir queue, returns GF_TRUE if not added
 Bool gf_fq_res_add(GF_FilterQueue *fq, void *item);
+
+Bool filter_source_id_match(GF_FilterPid *src_pid, const char *id, GF_Filter *dst_filter, Bool *pid_excluded, Bool *needs_clone, const char *source_ids);
+const char *gf_filter_last_id_in_chain(GF_Filter *filter, Bool ignore_first);
+
 
 #endif //_GF_FILTER_SESSION_H_
 

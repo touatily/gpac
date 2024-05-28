@@ -2532,6 +2532,7 @@ GF_Err gf_m3u8_solve_representation_xlink(GF_MPD_Representation *rep, const char
 		//NOTE: for GPAC now, we disable stream AAC to avoid the problem when switching quality. It should be improved later !
 		if (strstr(elt->url, ".aac")) {
 			rep->playback.disabled = GF_TRUE;
+			gf_m3u8_master_playlist_del(&pl);
 			return GF_OK;
 		}
 		if (elt->drm_method==DRM_AES_128)
@@ -3495,7 +3496,7 @@ static GF_Err mpd_write_generation_comment(GF_MPD const * const mpd, FILE *out)
 	return GF_OK;
 }
 
-static void gf_mpd_write_m3u8_playlist_tags_entry(FILE *out, const GF_MPD_Representation *rep, char *m3u8_name, const char *codec_ext, const char *g_type, const char *g_id_pref, const char *g2_type, const char *g2_id_pref, const GF_MPD_AdaptationSet *set, u32 max_alt_bandwidth, u32 max_alt_width, u32 max_alt_height, Double max_alt_fps)
+static void gf_mpd_write_m3u8_playlist_tags_entry(FILE *out, const GF_MPD_Representation *rep, char *m3u8_name, const char *codec_ext, const char *g_type, const char *g_id_pref, const char *g2_type, const char *g2_id_pref, const GF_MPD_AdaptationSet *set, u32 max_alt_bandwidth, u32 max_alt_width, u32 max_alt_height, Double max_alt_fps, u32 hls_version)
 {
 	u32 i;
 
@@ -3531,8 +3532,14 @@ static void gf_mpd_write_m3u8_playlist_tags_entry(FILE *out, const GF_MPD_Repres
 		gf_fprintf(out,",%s=\"%s", g2_type, g2_id_pref);
 		gf_fprintf(out,"\"");
 	}
+	Bool has_cc = GF_FALSE;
 	for (i=0; i<rep->nb_hls_master_tags; i++) {
 		gf_fprintf(out,",%s", rep->hls_master_tags[i]);
+		if (strstr(rep->hls_master_tags[i], "CLOSED-CAPTIONS"))
+			has_cc = GF_TRUE;
+	}
+	if (!has_cc && !gf_sys_is_test_mode() && (hls_version>=6)) {
+		gf_fprintf(out, ",CLOSED-CAPTIONS=NONE");
 	}
 	gf_fprintf(out,"\n");
 
@@ -3540,7 +3547,7 @@ static void gf_mpd_write_m3u8_playlist_tags_entry(FILE *out, const GF_MPD_Repres
 
 }
 
-static void gf_mpd_write_m3u8_playlist_tags(const GF_MPD_AdaptationSet *as, u32 as_idx, const GF_MPD_Representation *rep, FILE *out, char *m3u8_name, GF_MPD_Period *period, u32 nb_alt_media, u32 nb_subs, u32 nb_cc, const char *forced_inf_ids)
+static void gf_mpd_write_m3u8_playlist_tags(const GF_MPD_AdaptationSet *as, u32 as_idx, const GF_MPD_Representation *rep, FILE *out, char *m3u8_name, GF_MPD_Period *period, u32 nb_alt_media, u32 nb_subs, u32 nb_cc, const char *forced_inf_ids, u32 hls_version)
 {
 	u32 i;
 	GF_MPD_AdaptationSet *r_as;
@@ -3620,7 +3627,7 @@ static void gf_mpd_write_m3u8_playlist_tags(const GF_MPD_AdaptationSet *as, u32 
 
 	//no other streams, directly write the entry
 	if (!nb_alt_media && !nb_subs && !nb_cc && (!forced_inf_ids || !forced_inf_ids[0])) {
-		gf_mpd_write_m3u8_playlist_tags_entry(out, rep, m3u8_name, NULL, NULL, NULL, NULL, NULL, as, 0, 0, 0, 0);
+		gf_mpd_write_m3u8_playlist_tags_entry(out, rep, m3u8_name, NULL, NULL, NULL, NULL, NULL, as, 0, 0, 0, 0, hls_version);
 		return;
 	}
 
@@ -3685,7 +3692,7 @@ static void gf_mpd_write_m3u8_playlist_tags(const GF_MPD_AdaptationSet *as, u32 
 	if (gf_sys_is_test_mode() && !g_m_width)
 		g_m_bandwidth = 0;
 
-	gf_mpd_write_m3u8_playlist_tags_entry(out, rep, m3u8_name, grp_codecs, g_type, g_id, g_type_subs, g_id_subs, as, g_m_bandwidth, g_m_width, g_m_height, g_m_fps);
+	gf_mpd_write_m3u8_playlist_tags_entry(out, rep, m3u8_name, grp_codecs, g_type, g_id, g_type_subs, g_id_subs, as, g_m_bandwidth, g_m_width, g_m_height, g_m_fps, hls_version);
 	if (grp_codecs) gf_free(grp_codecs);
 	grp_codecs=NULL;
 }
@@ -3705,6 +3712,47 @@ static const char *gf_mpd_m3u8_get_init_seg(const GF_MPD_Period *period, const G
 	else if (period->segment_template && period->segment_template->initialization) url = period->segment_template->initialization;
 	else if (period->segment_template && period->segment_template->initialization_segment) url = period->segment_template->initialization_segment->sourceURL;
 	return url;
+}
+
+static void hls_insert_crypt_info(FILE *out, GF_MPD_Representation *rep, GF_DASH_SegmentContext *sctx, const char **last_kms)
+{
+	if (!rep->crypto_type) return;
+	const char *kms;
+	if (!sctx->encrypted)
+		kms = "NONE";
+	else if (sctx->hls_key_uri) kms = sctx->hls_key_uri;
+	else {
+		kms = "URI=\"gpac:hls:key:locator:null\"";
+		if (!rep->def_kms_used) {
+			rep->def_kms_used = 1;
+			GF_LOG(GF_LOG_WARNING, GF_LOG_DASH, ("[HLS] Missing key URI in one or more keys - will use dummy one %s\n", kms));
+		}
+	}
+
+	if (! *last_kms || strcmp(kms, *last_kms)) {
+		if (!strcmp(kms, "NONE")) {
+			gf_fprintf(out,"#EXT-X-KEY:METHOD=NONE\n");
+		} else {
+			char *subkms = (char *) kms;
+			while (1) {
+				char *next = strstr(subkms, ",URI");
+				if (next) next[0] = 0;
+				if (rep->crypto_type==1) {
+					u32 k;
+					gf_fprintf(out,"#EXT-X-KEY:METHOD=AES-128,%s,IV=0x", subkms);
+					for (k=0; k<16; k++)
+						gf_fprintf(out, "%02X", sctx->hls_iv[k]);
+					gf_fprintf(out, "\n");
+				} else {
+					gf_fprintf(out,"#EXT-X-KEY:METHOD=SAMPLE-AES,%s\n", subkms);
+				}
+				if (!next) break;
+				next[0] = ',';
+				subkms = next+1;
+			}
+		}
+		*last_kms = (rep->crypto_type==2) ? kms : NULL;
+	}
 }
 
 static GF_Err gf_mpd_write_m3u8_playlist(const GF_MPD *mpd, const GF_MPD_Period *period, const GF_MPD_AdaptationSet *as, GF_MPD_Representation *rep, char *m3u8_name, u32 hls_version, Double max_part_dur_session, const char *force_base_url)
@@ -3759,11 +3807,13 @@ static GF_Err gf_mpd_write_m3u8_playlist(const GF_MPD *mpd, const GF_MPD_Period 
 		gf_fprintf(out, "\n");
 	}
 
+	//things common to onDemand and live profiles
+	if (as->intra_only) {
+		gf_fprintf(out,"#EXT-X-I-FRAMES-ONLY\n");
+	}
 
+	//one file per segment
 	if (sctx && sctx->filename) {
-		if (as->intra_only) {
-			gf_fprintf(out,"#EXT-X-I-FRAMES-ONLY\n");
-		}
 		if (rep->hls_single_file_name) {
 			if (force_base_url)
 				force_url = gf_url_concatenate(force_base_url, rep->hls_single_file_name);
@@ -3781,46 +3831,12 @@ static GF_Err gf_mpd_write_m3u8_playlist(const GF_MPD *mpd, const GF_MPD_Period 
 			sctx = gf_list_get(rep->state_seg_list, i);
 			gf_assert(sctx->filename);
 
-			if (rep->crypto_type) {
-				const char *kms;
-				if (!sctx->encrypted) kms = "NONE";
-				else if (sctx->hls_key_uri) kms = sctx->hls_key_uri;
-				else {
-					kms = "URI=\"gpac:hls:key:locator:null\"";
-					if (!rep->def_kms_used) {
-						rep->def_kms_used = 1;
-						GF_LOG(GF_LOG_WARNING, GF_LOG_DASH, ("[HLS] Missing key URI in one or more keys - will use dummy one %s\n", kms));
-					}
-				}
-
-				if (!last_kms || strcmp(kms, last_kms)) {
-					if (!strcmp(kms, "NONE")) {
-						gf_fprintf(out,"#EXT-X-KEY:METHOD=NONE\n");
-					} else {
-						char *subkms = (char *) kms;
-						while (1) {
-							char *next = strstr(subkms, ",URI");
-							if (next) next[0] = 0;
-							if (rep->crypto_type==1) {
-								u32 k;
-								gf_fprintf(out,"#EXT-X-KEY:METHOD=AES-128,%s,IV=0x", subkms);
-								for (k=0; k<16; k++)
-									gf_fprintf(out, "%02X", sctx->hls_iv[k]);
-								gf_fprintf(out, "\n");
-							} else {
-								gf_fprintf(out,"#EXT-X-KEY:METHOD=SAMPLE-AES,%s\n", subkms);
-							}
-							if (!next) break;
-							next[0] = ',';
-							subkms = next+1;
-						}
-					}
-					last_kms = (rep->crypto_type==2) ? kms : NULL;
-				}
-			}
+			hls_insert_crypt_info(out, rep, sctx, &last_kms);
 
 			u64 next_br_start_plus_one=0;
 			u32 next_seg_idx=0;
+
+			//LL-HLS related
 			if ((mpd->type == GF_MPD_TYPE_DYNAMIC) && sctx->llhls_mode) {
 				u32 k, nb_parts=sctx->nb_frags;
 				//EXT-X-PART tags SHOULD be removed from the Playlist after they are greater than three Target Durations from the end of the Playlist.
@@ -3944,7 +3960,9 @@ static GF_Err gf_mpd_write_m3u8_playlist(const GF_MPD *mpd, const GF_MPD_Period 
 				force_url = NULL;
 			}
 		}
-	} else {
+	}
+	//byte-range in single file
+	else {
 		GF_MPD_BaseURL *base_url=NULL;
 		const char *b_url=NULL;
 		GF_MPD_URL *init=NULL;
@@ -3986,6 +4004,8 @@ static GF_Err gf_mpd_write_m3u8_playlist(const GF_MPD *mpd, const GF_MPD_Period 
 			sctx = gf_list_get(rep->state_seg_list, i);
 			gf_assert(!sctx->filename);
 			gf_assert(sctx->file_size);
+
+			hls_insert_crypt_info(out, rep, sctx, &last_kms);
 
 			dur = (Double) sctx->dur;
 			dur /= rep->timescale;
@@ -4034,6 +4054,7 @@ GF_Err gf_mpd_write_m3u8_master_playlist(GF_MPD const * const mpd, FILE *out, co
 	Bool has_muxed_comp = GF_FALSE;
 	Bool has_video = GF_FALSE;
 	Bool has_audio = GF_FALSE;
+	Bool has_cc = GF_FALSE;
 
 	if (!m3u8_name || !period) return GF_BAD_PARAM;
 
@@ -4065,13 +4086,23 @@ GF_Err gf_mpd_write_m3u8_master_playlist(GF_MPD const * const mpd, FILE *out, co
 			if (rep->streamtype==GF_STREAM_AUDIO) nb_audio++;
 			else if (rep->streamtype==GF_STREAM_TEXT) nb_subs++;
 			else if (rep->streamtype==GF_STREAM_VISUAL) nb_video++;
+
+			if (!has_cc) {
+				u32 k;
+				for (k=0; k<rep->nb_hls_master_tags; k++) {
+					if (strstr(rep->hls_master_tags[k], "CLOSED-CAPTIONS")) {
+						has_cc = GF_TRUE;
+						break;
+					}
+				}
+			}
 		}
 	}
 	//we by default use floating point durations
 	hls_version = 3;
 	if (use_range) hls_version = 4;
 	if (use_intra_only) hls_version = 5;
-	if (is_fmp4 || use_init) hls_version = 6;
+	if (is_fmp4 || use_init || has_cc) hls_version = 6;
 
 	if (mode!=GF_M3U8_WRITE_CHILD) {
 
@@ -4281,11 +4312,11 @@ GF_Err gf_mpd_write_m3u8_master_playlist(GF_MPD const * const mpd, FILE *out, co
 			if (force_base_url && ((mpd->hls_abs_url==2) || (mpd->hls_abs_url==3)))
 				force_url = gf_url_concatenate(force_base_url, name);
 
-			gf_mpd_write_m3u8_playlist_tags(as, i, rep, out, force_url ? force_url : name, is_primary ? period : NULL, nb_alt_streams, nb_subs, nb_cc, 0);
+			gf_mpd_write_m3u8_playlist_tags(as, i, rep, out, force_url ? force_url : name, is_primary ? period : NULL, nb_alt_streams, nb_subs, nb_cc, 0, hls_version);
 			gf_fprintf(out, "\n");
 
 			if (!is_primary && rep->hls_forced) {
-				gf_mpd_write_m3u8_playlist_tags(as, i, rep, out, force_url ? force_url : name, period, 0, 0, 0, rep->hls_forced);
+				gf_mpd_write_m3u8_playlist_tags(as, i, rep, out, force_url ? force_url : name, period, 0, 0, 0, rep->hls_forced, hls_version);
 				gf_fprintf(out, "\n");
 			}
 
