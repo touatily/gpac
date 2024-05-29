@@ -58,18 +58,12 @@ enum
 
 typedef struct _route_repair_seg_info RepairSegmentInfo;
 
-typedef enum {
-	REPAIR_RANGE_GAP = 0,
-	REPAIR_RANGE_MOOF_BOX,
-	REPAIR_RANGE_HEADER,
-} REPAIR_RANGE_PRIORITY;
-
 typedef struct
 {
 	u32 br_start;
 	u32 br_end;
 	u32 done;
-	REPAIR_RANGE_PRIORITY priority;
+	u32 priority;
 } RouteRepairRange;
 
 
@@ -129,6 +123,10 @@ struct _route_repair_seg_info
 	GF_List *ranges;
 	u32 nb_errors;
 	Bool was_partial;
+
+	u32 state; //doing top-level boxes (except mdat; header only) or repairing level 0, level 1, 
+	//SampleRangeDependency: valid once all top headers moof are ok
+	u32 last_pos_repair_top_level; 
 };
 
 

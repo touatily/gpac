@@ -380,12 +380,12 @@ static void route_repair_build_ranges_isobmf(ROUTEInCtx *ctx, RepairSegmentInfo 
 			}
 
 			rr->br_start = pos;
-			rr->br_end = MAX(pos + 8, pos + min_size);
-			rr->priority = REPAIR_RANGE_HEADER;
+			rr->br_end = MIN(finfo->total_size, pos + min_size);
 
 			GF_LOG(GF_LOG_INFO, GF_LOG_ROUTE, ("[REPAIR] adding repair range [%u, %u] \n", rr->br_start, rr->br_end));
 
 			gf_list_add(rsi->ranges, rr);
+			rsi->last_pos_repair_top_level = rr->br_start;
 			return;
 		} else {
 			box_size = GF_4CC(finfo->blob->data[pos], finfo->blob->data[pos+1], finfo->blob->data[pos+2], finfo->blob->data[pos+3]);
@@ -394,7 +394,7 @@ static void route_repair_build_ranges_isobmf(ROUTEInCtx *ctx, RepairSegmentInfo 
 				GF_LOG(GF_LOG_WARNING, GF_LOG_ROUTE, ("[REPAIR] Corrupted data: top-level box range [%u, %u] exceeds segment size %u \n", pos, pos+box_size, finfo->total_size));
 				return;
 			}
-			if(box_type == GF_4CC('m', 'o', 'o', 'f')) {
+			if ((box_type != GF_4CC('m', 'd', 'a', 't')) && (box_type != GF_4CC('i', 'd', 'a', 't'))) {
 				if(!does_belong(finfo->frags, finfo->nb_frags, pos, box_size)) {
 					RouteRepairRange *rr = gf_list_pop_back(ctx->seg_range_reservoir);
 					if (!rr) {
@@ -410,12 +410,12 @@ static void route_repair_build_ranges_isobmf(ROUTEInCtx *ctx, RepairSegmentInfo 
 					}
 
 					rr->br_start = pos;
-					rr->br_end = MAX(pos + box_size, pos + min_size);
-					rr->priority = REPAIR_RANGE_MOOF_BOX;
+					rr->br_end = MIN(finfo->total_size, (pos + box_size, pos + min_size));
 
 					GF_LOG(GF_LOG_INFO, GF_LOG_ROUTE, ("[REPAIR] adding repair range [%u, %u] \n", rr->br_start, rr->br_end));
 
 					gf_list_add(rsi->ranges, rr);
+					rsi->last_pos_repair_top_level = rr->br_start;
 				}
 			}
 			pos += box_size;
@@ -472,7 +472,6 @@ static void route_repair_build_ranges_full(ROUTEInCtx *ctx, RepairSegmentInfo *r
 		}
 		rr->br_start = br_start;
 		rr->br_end = br_end;
-		rr->priority = REPAIR_RANGE_GAP;
 
 		gf_list_add(rsi->ranges, rr);
 	}
@@ -534,6 +533,7 @@ void routein_queue_repair(ROUTEInCtx *ctx, GF_ROUTEEventType evt, u32 evt_param,
 	if(ctx->repair == ROUTEIN_REPAIR_FULL) {
 		route_repair_build_ranges_full(ctx, rsi, finfo);
 	} else if(ctx->repair == ROUTEIN_REPAIR_ISOBMF) {
+		rsi->state = 0;
 		route_repair_build_ranges_isobmf(ctx, rsi, finfo, 0);
 	} else {
 		GF_LOG(GF_LOG_WARNING, GF_LOG_ROUTE, ("[REPAIR] repair option not supported \n", ctx->repair));
@@ -556,7 +556,12 @@ static void repair_session_done(ROUTEInCtx *ctx, RouteRepairSession *rsess, GF_E
 	if (!rsi) return;
 
 	//notify routedmx we have received a byte range
-	gf_routedmx_patch_frag_info(ctx->route_dmx, rsi->service_id, &rsi->finfo, rsess->range->br_start, rsess->range->br_end);
+	gf_routedmx_patch_frag_info(ctx->route_dmx, rsi->service_id, &rsi->finfo, rsess->range->br_start, rsess->range->done);
+	if(rsess->range->br_end == rsess->range->done) {
+		GF_LOG(GF_LOG_INFO, GF_LOG_ROUTE, ("[REPAIR] Successfully repaired data interval [%u, %u] \n", rsess->range->br_start, rsess->range->br_end));
+	} else {
+		GF_LOG(GF_LOG_INFO, GF_LOG_ROUTE, ("[REPAIR] Failed to repair entire data interval [%u, %u]. Only sub-interval [%u, %u] was received.. \n", rsess->range->br_start, rsess->range->br_end, rsess->range->br_start, rsess->range->done));
+	}
 
 	rsess->current_si = NULL;
 	gf_list_add(ctx->seg_range_reservoir, rsess->range);
@@ -569,6 +574,13 @@ static void repair_session_done(ROUTEInCtx *ctx, RouteRepairSession *rsess, GF_E
 	}
 
 	if (gf_list_count(rsi->ranges)) return;
+
+	if(ctx->repair == ROUTEIN_REPAIR_ISOBMF) {
+		route_repair_build_ranges_isobmf(ctx, rsi, &(rsi->finfo), rsi->last_pos_repair_top_level);
+		if (gf_list_count(rsi->ranges)) return;
+
+		rsi->state = 1;
+	}
 
 	if (!rsi->removed) {
 		//flush
@@ -651,11 +663,8 @@ restart:
 		memcpy(rsi->finfo.blob->data + offset, http_buf, nb_read);
 		gf_mx_v(rsi->finfo.blob->mx);
 		rsess->range->done += nb_read;
-		//TODO, update frag info
+		//do we need to update frag info at each chunk ? for now, only done when session is over
 
-		if(rsess->range->priority == REPAIR_RANGE_HEADER && rsess->range->done > 8 && ctx->repair == ROUTEIN_REPAIR_ISOBMF) {
-			route_repair_build_ranges_isobmf(ctx, rsi, &(rsi->finfo), rsess->range->br_start);
-		}
 	}
 	if (e==GF_OK) return;
 
