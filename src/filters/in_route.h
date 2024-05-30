@@ -112,6 +112,23 @@ typedef struct
 	GF_List *seg_range_reservoir;
 } ROUTEInCtx;
 
+
+typedef struct __sample_dep
+{
+	//byte offset in file for the start of the range
+	u32 offset;
+	//size of the range
+	u32 size;
+	//ID of the range
+	u16 id;
+	//ID of the highest dependent range required to process the range
+	//if dep_id == id, sample is random access
+	u16 dep_id;
+	//1: random access
+	//2: leaf temporal level, discardable right away
+	u8 type;
+} SampleRangeDependency;
+
 struct _route_repair_seg_info
 {
 	//copy of finfo event, valid until associated object is removed
@@ -125,10 +142,9 @@ struct _route_repair_seg_info
 	Bool was_partial;
 
 	u32 state; //doing top-level boxes (except mdat; header only) or repairing level 0, level 1, 
-	//SampleRangeDependency: valid once all top headers moof are ok
+	SampleRangeDependency* srd; // valid once all top headers moof are ok
 	u32 last_pos_repair_top_level; 
 };
-
 
 
 Bool routein_repair_segment(ROUTEInCtx *ctx, GF_ROUTEEventFileInfo *finfo);

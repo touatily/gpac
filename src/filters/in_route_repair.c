@@ -30,28 +30,13 @@
 
 
 #include <gpac/isomedia.h>
-typedef struct __sample_dep
-{
-	//byte offset in file for the start of the range
-	u32 offset;
-	//size of the range
-	u32 size;
-	//ID of the range
-	u16 id;
-	//ID of the highest dependent range required to process the range
-	//if dep_id == id, sample is random access
-	u16 dep_id;
-	//1: random access
-	//2: leaf temporal level, discardable right away
-	u8 type;
-} SampleRangeDependency;
 
 //simple dependency extraction from isobmff:
 //if error returns GF_FALSE, otherwise GF_TRUE
 //if all samples are random access point, ranges is set to NULL and nb_ranges set to 0
 //otherwise ranges is allocated with the dependency list
 //the function is very basic and will need further rework, listng all direct reference samples
-static Bool routein_repair_get_isobmf_deps(char *seg_name, GF_Blob *blob, SampleRangeDependency **out_ranges, u32 *nb_ranges)
+static Bool routein_repair_get_isobmf_deps(const char *seg_name, GF_Blob *blob, SampleRangeDependency **out_ranges, u32 *nb_ranges)
 {
 	GF_ISOFile *file;
 	u64 BytesMissing;
@@ -144,7 +129,7 @@ static Bool routein_repair_get_isobmf_deps(char *seg_name, GF_Blob *blob, Sample
 		GF_LOG(GF_LOG_DEBUG, GF_LOG_ROUTE, ("[ROUTE] Range dependency for file %s\n", seg_name ? seg_name : szBlobPath));
 		for (i=0; i<count; i++) {
 			SampleRangeDependency *r = &ranges[i];
-			GF_LOG(GF_LOG_DEBUG, GF_LOG_ROUTE, ("\t#%d size %u offset %u ID %u depends on range ID %u\n", i+1, r->size, r->offset, r->id, r->dep_id));
+			GF_LOG(GF_LOG_DEBUG, GF_LOG_ROUTE, ("\t#%3d size %10u offset %10u ID %2u depends on range ID %2u\n", i+1, r->size, r->offset, r->id, r->dep_id));
 		}
 	}
 #endif
@@ -423,6 +408,15 @@ static void route_repair_build_ranges_isobmf(ROUTEInCtx *ctx, RepairSegmentInfo 
 	}
 }
 
+static void route_repair_isobmf_mdat_box(RepairSegmentInfo *rsi) {
+	u32 nb_ranges;
+	
+	routein_repair_get_isobmf_deps(rsi->finfo.filename, rsi->finfo.blob, &rsi->srd, &nb_ranges);
+
+
+	gf_free(rsi->srd);
+}
+
 static void route_repair_build_ranges_full(ROUTEInCtx *ctx, RepairSegmentInfo *rsi, GF_ROUTEEventFileInfo *finfo)
 {
 	u32 i;
@@ -535,6 +529,11 @@ void routein_queue_repair(ROUTEInCtx *ctx, GF_ROUTEEventType evt, u32 evt_param,
 	} else if(ctx->repair == ROUTEIN_REPAIR_ISOBMF) {
 		rsi->state = 0;
 		route_repair_build_ranges_isobmf(ctx, rsi, finfo, 0);
+
+		if(gf_list_count(rsi->ranges) == 0) {
+			rsi->state = 1;
+			route_repair_isobmf_mdat_box(rsi);
+		}
 	} else {
 		GF_LOG(GF_LOG_WARNING, GF_LOG_ROUTE, ("[REPAIR] repair option not supported \n", ctx->repair));
 	}
@@ -587,6 +586,7 @@ static void repair_session_done(ROUTEInCtx *ctx, RouteRepairSession *rsess, GF_E
 		if (gf_list_count(rsi->ranges)) return;
 
 		rsi->state = 1;
+		route_repair_isobmf_mdat_box(rsi);
 	}
 
 	if (!rsi->removed) {
