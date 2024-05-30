@@ -410,7 +410,7 @@ static void route_repair_build_ranges_isobmf(ROUTEInCtx *ctx, RepairSegmentInfo 
 					}
 
 					rr->br_start = pos;
-					rr->br_end = MIN(finfo->total_size, (pos + box_size, pos + min_size));
+					rr->br_end = MIN(finfo->total_size, MAX(pos + box_size, pos + min_size));
 
 					GF_LOG(GF_LOG_INFO, GF_LOG_ROUTE, ("[REPAIR] adding repair range [%u, %u] \n", rr->br_start, rr->br_end));
 
@@ -537,6 +537,13 @@ void routein_queue_repair(ROUTEInCtx *ctx, GF_ROUTEEventType evt, u32 evt_param,
 		route_repair_build_ranges_isobmf(ctx, rsi, finfo, 0);
 	} else {
 		GF_LOG(GF_LOG_WARNING, GF_LOG_ROUTE, ("[REPAIR] repair option not supported \n", ctx->repair));
+	}
+
+	if(gf_list_count(rsi->ranges) == 0) {
+		gf_list_transfer(ctx->seg_range_reservoir, rsi->ranges);
+		gf_list_add(ctx->seg_range_reservoir, rsi->ranges);
+		gf_list_add(ctx->seg_range_reservoir, rsi);
+		return;
 	}
 
 	gf_mx_p(finfo->blob->mx);
