@@ -581,7 +581,7 @@ static void repair_session_done(ROUTEInCtx *ctx, RouteRepairSession *rsess, GF_E
 
 	if (gf_list_count(rsi->ranges)) return;
 
-	if(ctx->repair == ROUTEIN_REPAIR_ISOBMF) {
+	if(ctx->repair == ROUTEIN_REPAIR_ISOBMF && !rsi->state) {
 		route_repair_build_ranges_isobmf(ctx, rsi, &(rsi->finfo), rsi->last_pos_repair_top_level);
 		if (gf_list_count(rsi->ranges)) return;
 
