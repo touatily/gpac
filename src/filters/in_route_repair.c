@@ -408,11 +408,39 @@ static void route_repair_build_ranges_isobmf(ROUTEInCtx *ctx, RepairSegmentInfo 
 	}
 }
 
-static void route_repair_isobmf_mdat_box(RepairSegmentInfo *rsi) {
-	u32 nb_ranges;
+static void route_repair_isobmf_mdat_box(ROUTEInCtx *ctx, RepairSegmentInfo *rsi) {
+	u32 nb_ranges, i;
 	
 	routein_repair_get_isobmf_deps(rsi->finfo.filename, rsi->finfo.blob, &rsi->srd, &nb_ranges);
 
+	for (i=0; i<nb_ranges; i++) {
+		SampleRangeDependency *r = &rsi->srd[i];
+		if(r->id == r->dep_id) {
+			// I image
+			if(! does_belong(rsi->finfo.frags, rsi->finfo.nb_frags, r->offset, r->size)) {
+				// repair !
+				RouteRepairRange *rr = gf_list_pop_back(ctx->seg_range_reservoir);
+				if (!rr) {
+					GF_SAFEALLOC(rr, RouteRepairRange);
+					if (!rr) {
+						rsi->nb_errors++;
+						return;
+					}
+				} else {
+					memset(rr, 0, sizeof(RouteRepairRange));
+				}
+
+				rr->br_start = r->offset;
+				rr->br_end = r->offset + r->size;
+
+				GF_LOG(GF_LOG_INFO, GF_LOG_ROUTE, ("[REPAIR] (Intra image) adding repair range [%u, %u] \n", rr->br_start, rr->br_end));
+
+				gf_list_add(rsi->ranges, rr);
+			}
+		} else if(r->type == 2) {
+			continue;
+		}
+	}
 
 	gf_free(rsi->srd);
 }
@@ -532,7 +560,7 @@ void routein_queue_repair(ROUTEInCtx *ctx, GF_ROUTEEventType evt, u32 evt_param,
 
 		if(gf_list_count(rsi->ranges) == 0) {
 			rsi->state = 1;
-			route_repair_isobmf_mdat_box(rsi);
+			route_repair_isobmf_mdat_box(ctx, rsi);
 		}
 	} else {
 		GF_LOG(GF_LOG_WARNING, GF_LOG_ROUTE, ("[REPAIR] repair option not supported \n", ctx->repair));
@@ -586,7 +614,7 @@ static void repair_session_done(ROUTEInCtx *ctx, RouteRepairSession *rsess, GF_E
 		if (gf_list_count(rsi->ranges)) return;
 
 		rsi->state = 1;
-		route_repair_isobmf_mdat_box(rsi);
+		route_repair_isobmf_mdat_box(ctx, rsi);
 	}
 
 	if (!rsi->removed) {
