@@ -3107,9 +3107,11 @@ GF_Err gf_isom_refresh_fragmented(GF_ISOFile *movie, u64 *MissingBytes, const ch
 			gf_isom_datamap_del(previous_movie_fileMap_address);
 		}
 	}
-
-	prevsize = gf_bs_get_refreshed_size(movie->movieFileMap->bs);
-	if (prevsize==size) return GF_OK;
+	//if data map uses a blob, we cannot check the size, as it may be correctly advertized before but incomplete at last refresh (multicast source)
+	if (!movie->movieFileMap->use_blob) {
+		prevsize = gf_bs_get_refreshed_size(movie->movieFileMap->bs);
+		if (prevsize==size) return GF_OK;
+	}
 
 	if (!movie->moov->mvex)
 		return GF_OK;
@@ -4893,7 +4895,7 @@ GF_EXPORT
 void gf_isom_reset_fragment_info(GF_ISOFile *movie, Bool keep_sample_count)
 {
 	u32 i;
-	if (!movie) return;
+	if (!movie || !movie->moov) return;
 	for (i=0; i<gf_list_count(movie->moov->trackList); i++) {
 		GF_TrackBox *trak = (GF_TrackBox*)gf_list_get(movie->moov->trackList, i);
 		trak->Media->information->sampleTable->SampleSize->sampleCount = 0;

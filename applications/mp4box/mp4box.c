@@ -797,7 +797,7 @@ void PrintDASHUsage()
 	u32 i=0;
 	gf_sys_format_help(helpout, help_flags, "# DASH Options\n"
 		"Also see:\n"
-		"- the [dasher `gpac -h dash`](dasher) filter documentation\n"
+		"- the [dasher `gpac -h dasher`](dasher) filter documentation\n"
 		"- [[DASH wiki|DASH-intro]].\n"
 		"\n"
 		"# Specifying input files\n"
@@ -806,6 +806,7 @@ void PrintDASHUsage()
 		"- #N: only use the track ID N from the source file (mapped to [-tkid](mp4dmx))\n"
 		"- #video: only use the first video track from the source file\n"
 		"- #audio: only use the first audio track from the source file\n"
+		"- #Prop=Value: add PID filtering using the same syntax as SID fragments (cf `gpac -h doc`)\n"
 		"- :id=NAME: set the representation ID to NAME. Reserved value `NULL` disables representation ID for multiplexed inputs. If not set, a default value is computed and all selected tracks from the source will be in the same output multiplex.\n"
 		"- :dur=VALUE: process VALUE seconds (fraction) from the media. If VALUE is longer than media duration, last sample duration is extended.\n"
 		"- :period=NAME: set the representation's period to NAME. Multiple periods may be used. Periods appear in the MPD in the same order as specified with this option\n"
@@ -821,7 +822,7 @@ void PrintDASHUsage()
 		"- :desc_as_c=VALUE: add a descriptor at the AdaptationSet level. Value is ignored while creating AdaptationSet elements.\n"
 		"- :desc_rep=VALUE: add a descriptor at the Representation level. Value is ignored while creating AdaptationSet elements.\n"
 		"- :sscale: force movie timescale to match media timescale of the first track in the segment.\n"
-		"- :trackID=N: only use the track ID N from the source file\n"
+		"- :trackID=N: same as setting fragment `#trackID=`\n"
 		"- @f1[:args][@fN:args][@@fK:args]: set a filter chain to insert between the source and the dasher. Each filter in the chain is formatted as a regular filter, see [filter doc `gpac -h doc`](filters_general). If several filters are set:\n"
 		"  - they will be chained in the given order if separated by a single `@`\n"
 		"  - a new filter chain will be created if separated by a double `@@`. In this case, no representation ID is assigned to the source.\n"
@@ -1667,10 +1668,11 @@ void PrintUsage()
 		i++;
 		gf_sys_print_arg(helpout, help_flags, arg, "mp4box-general");
 	}
-	gf_sys_format_help(helpout, help_flags, "\nReturn codes are 0 for no error, 1 for error"
+	gf_sys_format_help(helpout, help_flags, "\nReturn codes are:\n- 0: no error\n- 1: error\n"
 #ifdef GPAC_MEMORY_TRACKING
-		" and 2 for memory leak detection when -mem-track is used"
+		"- 2: memory leak detection when -mem-track is used\n"
 #endif
+		"- 3: call is too early when resuming dashing from an existing context\n"
 		"\n");
 }
 
@@ -4687,6 +4689,7 @@ static GF_Err do_dash()
 {
 	GF_Err e;
 	u32 i;
+	Bool call_too_early = GF_FALSE;
 	Bool del_file = GF_FALSE;
 	char szMPD[GF_MAX_PATH], *sep;
 	char szStateFile[GF_MAX_PATH];
@@ -4833,6 +4836,7 @@ static GF_Err do_dash()
 		if (!dash_live && (e==GF_EOS) ) {
 			M4_LOG(GF_LOG_INFO, ("Nothing to dash, too early ...\n"));
 			e = GF_OK;
+			if (!dash_live) call_too_early = GF_TRUE;
 		}
 
 		if (do_abort)
@@ -4906,6 +4910,7 @@ static GF_Err do_dash()
 	if (del_file)
 		gf_file_delete(inName);
 
+	if (call_too_early) return GF_NOT_READY;
 	return e;
 }
 
@@ -6260,7 +6265,8 @@ int mp4box_main(int argc, char **argv)
 
 	if (dash_duration) {
 		e = do_dash();
-		if (e) return mp4box_cleanup(1);
+		if (e==GF_NOT_READY) return mp4box_cleanup(3);
+		else if (e) return mp4box_cleanup(1);
 		goto exit;
 	}
 

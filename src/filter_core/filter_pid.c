@@ -1754,6 +1754,12 @@ static Bool filter_pid_check_fragment(GF_FilterPid *src_pid, char *frag_name, Bo
 	//check for built-in property
 	p4cc = gf_props_get_id(frag_name);
 
+	//if pid is from a source filter (no inputs) of type file, allow further connection as PIDNAME is likely the name of a demuxed PID
+	if ((p4cc==GF_PROP_PID_STREAM_TYPE) && (stream_type == GF_STREAM_FILE) && !src_pid->filter->num_input_pids) {
+		psep[0] = c;
+		return GF_TRUE;
+	}
+
 	if (!p4cc && (strlen(frag_name)==4))
 		p4cc = GF_4CC(frag_name[0], frag_name[1], frag_name[2], frag_name[3]);
 
@@ -3624,6 +3630,10 @@ static GF_Filter *gf_filter_pid_resolve_link_internal(GF_FilterPid *pid, GF_Filt
 		const char *args = pid->filter->orig_args ? pid->filter->orig_args : pid->filter->src_args;
 		GF_FilterPid *a_pid = pid;
 		GF_Filter *prev_af;
+		Bool use_step_link = GF_FALSE;
+		if (!min_chain_len) {
+			use_step_link = gf_opts_get_bool("core", "step-link");
+		}
 
 		if (skip_if_in_filter_list) {
 			gf_assert(skipped);
@@ -3748,9 +3758,10 @@ static GF_Filter *gf_filter_pid_resolve_link_internal(GF_FilterPid *pid, GF_Filt
 					cur_bundle++;
 				}
 			}
+
 			//if first filter has multiple possible outputs, don't bother loading the entire chain since it is likely wrong
 			//(eg demuxers, we don't know yet what's in the file)
-			if (!i && gf_filter_out_caps_solved_by_connection(freg, bundle_idx)) {
+			if (!i && (use_step_link || gf_filter_out_caps_solved_by_connection(freg, bundle_idx))) {
 				load_first_only = GF_TRUE;
 			} else if (i) {
 				Bool break_chain = GF_FALSE;
@@ -3776,6 +3787,25 @@ static GF_Filter *gf_filter_pid_resolve_link_internal(GF_FilterPid *pid, GF_Filt
 					break;
 				}
 				if (break_chain) {
+					break;
+				}
+			}
+			//if first in new chain is the same as one of the existing output relink the existing output and do not load chain
+			//this avoids loading multiple times the same filters instead of using fanouts on dynamicallly loaded filter
+			//see examples in #2851
+			if (!i && pid->num_destinations) {
+				u32 pidx;
+				GF_Filter *relink_dest_f = NULL;
+				for (pidx=0; pidx<pid->num_destinations; pidx++) {
+					GF_FilterPidInst *pidi = gf_list_get(pid->destinations, pidx);
+					if (pidi->filter->dynamic_filter && pidi->filter->freg == freg) {
+						relink_dest_f = pidi->filter;
+						break;
+					}
+				}
+				if (relink_dest_f) {
+					if (skipped) *skipped = GF_TRUE;
+					gf_filter_reconnect_output(relink_dest_f, NULL);
 					break;
 				}
 			}
@@ -4130,6 +4160,14 @@ static void gf_filter_pid_set_args_internal(GF_Filter *filter, GF_FilterPid *pid
 				goto skip_arg;
 		}
 
+		if (value && !strcmp(value, "")) {
+			if (p4cc)
+				gf_filter_pid_set_property(pid, p4cc, NULL);
+			else
+				gf_filter_pid_set_property_str(pid, name, NULL);
+			goto skip_arg;
+		}
+
 		if (prop_type != GF_PROP_FORBIDDEN) {
 			GF_PropertyValue p;
 			p.type = GF_PROP_FORBIDDEN;
@@ -4397,11 +4435,18 @@ static Bool gf_filter_pid_needs_explicit_resolution(GF_FilterPid *pid, GF_Filter
 	if ((out_stream_type>0) && (out_stream_type!=stream_type->value.uint))
 		return GF_TRUE;
 
+	Bool has_excluded_nomatch=GF_FALSE;
 	for (i=0; i<nb_caps; i++) {
 		const GF_FilterCapability *cap = &caps[i];
 		if (!(cap->flags & GF_CAPFLAG_INPUT)) continue;
 
 		if (cap->code != GF_PROP_PID_STREAM_TYPE) continue;
+
+		if (cap->flags & GF_CAPFLAG_EXCLUDED) {
+			if (cap->val.value.uint==stream_type->value.uint) return GF_TRUE;
+			has_excluded_nomatch=GF_TRUE;
+		}
+
 		//output type is file or same media type, allow looking for filter chains
 		if ((cap->val.value.uint==GF_STREAM_FILE) || (cap->val.value.uint==stream_type->value.uint)) return GF_FALSE;
 		//allow text|scene|video -> raw video for dynamic compositor
@@ -4416,6 +4461,8 @@ static Bool gf_filter_pid_needs_explicit_resolution(GF_FilterPid *pid, GF_Filter
 			}
 		}
 	}
+	if (has_excluded_nomatch) return GF_FALSE;
+	
 	//no mathing type found, we will need an explicit filter to solve this link (ie the link will be to the explicit filter)
 	return GF_TRUE;
 }
@@ -4709,8 +4756,17 @@ single_retry:
 			u32 j;
 			Bool already_linked = GF_FALSE;
 			for (j=0; j<pid->num_destinations; j++) {
+				//check direct connections
 				GF_FilterPidInst *pidi = gf_list_get(pid->destinations, j);
 				if (pidi->filter == filter_dst) {
+					already_linked=GF_TRUE;
+					break;
+				}
+				//check indirect connections
+				gf_mx_v(filter->session->filters_mx);
+				in_parent_chain = gf_filter_in_parent_chain(filter_dst, pidi->filter);
+				RELOCK_FILTER_LIST
+				if (in_parent_chain) {
 					already_linked=GF_TRUE;
 					break;
 				}

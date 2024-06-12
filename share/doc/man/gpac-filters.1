@@ -175,7 +175,7 @@ This will play the session at 2x speed, using 30s of maximum buffering, consumin
 .SH Options (expert):
 .LP
 .br
-log (str, default: stdout, Enum: _any|stderr|stdout|GLOG|null): set probe log filename
+log (str, default: stdout, Enum: _any|stderr|stdout|GLOG|TL|null): set probe log filename
 .br
 * _any: target file path and name
 .br
@@ -184,6 +184,8 @@ log (str, default: stdout, Enum: _any|stderr|stdout|GLOG|null): set probe log fi
 * stdout: dump to stdout
 .br
 * GLOG: use GPAC logs app@info
+.br
+* TL: use GPAC log tool TL at level info
 .br
 * null: silent mode
 .br
@@ -252,6 +254,8 @@ buffer (uint, default: 0):     set playback buffer in ms
 mbuffer (uint, default: 0):    set max buffer occupancy in ms. If less than buffer, use buffer
 .br
 rbuffer (uint, default: 0, updatable): rebuffer trigger in ms. If 0 or more than buffer, disable rebuffering
+.br
+stats (bool, default: false):  compute statistics for PIDs
 .br
 test (enum, default: no, updatable): skip predefined set of properties, used for test mode
 .br
@@ -938,6 +942,10 @@ ctso (sint):                   value to add to CTS offset for tracks using negat
 .br
 
 .br
+norw (bool, default: false):   skip reformating of samples - should only be used when rewriting fragments
+.br
+keepc (bool, default: false):  keep corrupted samples - should only be used in multicast modes
+.br
 
 .br
 .SH bifsdec
@@ -1001,6 +1009,22 @@ The filter handles both files and GF_FileIO objects as input URL.
 .br
 
 .br
+.SS Packet Injecting
+.br
+The filter can be used to inject a single packet instead of a file using (-pck)[] option.
+.br
+No specific properties are attached, except a timescale if (-ptime)[] is set.
+.br
+Example
+.br
+gpac fin:pck=str@"My Sample Text":ptime=2500/100:#CodecID=stxt:#StreamType=text
+.br
+
+.br
+This will declare the PID as WebVTT and send a single packet with payload My Sample Text and a timestamp value of 25 second.
+.br
+
+.br
 .SH Options (expert):
 .LP
 .br
@@ -1015,6 +1039,8 @@ ext (cstr):                    override file extension
 mime (cstr):                   set file mime type
 .br
 pck (mem):                     data to use instead of file
+.br
+ptime (frac, default: 0/0):    timing for data packet, ignored if den is 0
 .br
 
 .br
@@ -1850,7 +1876,7 @@ shift_utc (sint, default: 0):  shift DASH UTC clock in ms
 .br
 spd (sint, default: -I):       suggested presentation delay in ms
 .br
-route_shift (sint, default: 0): shift ROUTE requests time by given ms
+mcast_shift (sint, default: 0): shift requests time by given ms for multicast sources
 .br
 server_utc (bool, default: yes): use ServerUTC or Date HTTP headers instead of local UTC
 .br
@@ -2185,7 +2211,7 @@ The filter watches the following custom data properties on incoming packets:
 .br
 The property grp_EMSG consists in one or more EventMessageBox as defined in MPEG-DASH.
 .br
-- in fragmented mode, presence of these boxes in a packet will start a new fragment, with the boxes written before the moof
+- in fragmented mode, presence of this property in a packet will start a new fragment, with the boxes written before the moof
 .br
 - in regular mode, an internal sample group of type EMSG is currently used for emsg box storage
 .br
@@ -2829,6 +2855,8 @@ Input files must be in UTF-8 or UTF-16 format, with or without BOM. The internal
 .br
 * TTML: ISO/IEC 14496-30 XML subtitles
 .br
+* stxt and sbtt: ISO/IEC 14496-30 text stream and text subtitles
+.br
 * Others: 3GPP/QT Timed Text
 .br
 
@@ -2899,9 +2927,11 @@ MP4Box -add test.ttml --ttml_zero=10:00:00 [...]
 .SH Simple Text Support
 .LP
 .br
-The text loader can convert input files in simple text streams of a single packet, by forcing the codec type on the input:EX gpac -i test.txt:#CodecID=stxt  [...]
+The text loader can convert input files in simple text streams of a single packet, by forcing the codec type on the input:
 .br
 Example
+.br
+gpac -i test.txt:#CodecID=stxt  [...]
 .br
 gpac fin:pck="Text Data":#CodecID=stxt  [...]
 .br
@@ -2919,10 +2949,19 @@ In this mode, the .I stxtdur option is used to control the duration of the gener
 .br
 
 .br
-.SH Options (expert):
+.SH Notes
 .LP
 .br
-webvtt (bool, default: false): force WebVTT import of SRT files
+When reframing simple text streams from demuxers (e.g. subtitles from MKV), the output format of these streams can be selected using .I stxtmod.
+.br
+
+.br
+When importing SRT, SUB or SSA files, the output format of the PID can be selected using .I stxtmod.
+.br
+
+.br
+.SH Options (expert):
+.LP
 .br
 nodefbox (bool, default: false): skip default text box
 .br
@@ -2960,13 +2999,17 @@ no_empty (bool, default: false): do not send empty samples
 .br
 stxtdur (frac, default: 1):    duration for simple text
 .br
-stxtmod (enum, default: none): simple text stream mode
+stxtmod (enum, default: tx3g): text stream mode for simple text streams and SRT inputs
 .br
-* none: declares output PID as simple text stream
+* stxt: output PID formatted as simple text stream
 .br
-* tx3g: declares output PID as TX3G/Apple stream
+* sbtt: output PID formatted as subtitle text stream
 .br
-* vtt: declares output PID as WebVTT stream
+* tx3g: output PID formatted as TX3G/Apple stream
+.br
+* vtt: output PID formatted as WebVTT stream
+.br
+* webvtt: same as vtt (for backward compatiblity
 .br
 
 .br
@@ -3366,7 +3409,7 @@ This filter converts MPEG-H Audio streams into MHAS encapsulated data.
 .SH Options (expert):
 .LP
 .br
-syncp (bool, default: yes):    if set, insert sync packet at each frame, otherwise only at SAP
+syncp (bool, default: false):  if set, insert sync packet at each frame, otherwise only at SAP
 .br
 
 .br
@@ -5545,6 +5588,34 @@ Warning: Options for segment destination cannot be set through the .I template, 
 .br
 
 .br
+.SS Batch Operations
+.br
+The segmentation can be performed in multiple calls using a DASH context set with .I state.
+.br
+Between calls, the PIDs are reassigned by checking that the PID ID match between the calls and:
+.br
+- the input file names match between the calls
+.br
+- or the representation ID (and period ID if specified) match between the calls
+.br
+
+.br
+If a PID is not matched, it will be assigned to a new period.
+.br
+
+.br
+The default behaviour assume that the same inputs are used for segmentation and rebuilds a contiguous timeline at each new file start.
+.br
+If the inputs change but form a continuous timeline, [-keep_ts])() must be used to skip timeline reconstruction.
+.br
+
+.br
+The inputs will be segmented for a duration of .I subdur if set, otherwise the input media duration.
+.br
+When inputs are over, they are restarted if .I loop is set otherwise a new period is created.
+.br
+
+.br
 .SS Output redirecting
 .br
 When loaded implicitly during link resolution, the dasher will only link its outputs to the target sink
@@ -5792,13 +5863,15 @@ tsb (dbl, default: 30):        time-shift buffer depth in seconds (a negative va
 .br
 keep_segs (bool, default: false): do not delete segments no longer in time-shift buffer
 .br
-subdur (dbl, default: 0):      maximum duration of the input file to be segmented. This does not change the segment duration, segmentation stops once segments produced exceeded the duration
-.br
 ast (str):                     set start date (as xs:date, e.g. YYYY-MM-DDTHH:MM:SSZ) for live mode. Default is now. !! Do not use with multiple periods, nor when DASH duration is not a multiple of GOP size !!
 .br
 state (str):                   path to file used to store/reload state info when simulating live. This is stored as a valid MPD with GPAC XML extensions
 .br
+keep_ts (bool, default: false): do not shift timestamp when reloading a context
+.br
 loop (bool, default: false):   loop sources when dashing with subdur and state. If not set, a new period is created once the sources are over
+.br
+subdur (dbl, default: 0):      maximum duration of the input file to be segmented. This does not change the segment duration, segmentation stops once segments produced exceeded the duration
 .br
 split (bool, default: true):   enable cloning samples for text/metadata/scene description streams, marking further clones as redundant
 .br
@@ -5886,6 +5959,8 @@ hlsdrm (str):                  cryp file info for HLS full segment encryption
 .br
 hlsx (strl):                   list of string to append to master HLS header before variants with ['#foo','#bar=val'] added as #foo \n #bar=val
 .br
+hlsiv (bool, default: true):   inject IV in variant HLS playlist
+.br
 ll_preload_hint (bool, default: true): inject preload hint for LL-HLS
 .br
 ll_rend_rep (bool, default: true): inject rendition reports for LL-HLS
@@ -5961,6 +6036,8 @@ dkid (enum, default: auto):    control injection of default KID in MPD
 
 .br
 tpl_force (bool, default: false): use template string as is without trying to add extension or solve conflicts in names
+.br
+ttml_agg (bool, default: false): force aggregation of TTML samples of a DASH segment into a single sample
 .br
 
 .br
@@ -6590,7 +6667,7 @@ Description: ROUTE input
 .br
 
 .br
-This filter is a receiver for ROUTE sessions (ATSC 3.0 and generic ROUTE) and DVB-MABR flute sessions.
+This filter is a receiver for file delivery over multicast. It currently supports ATSC 3.0, generic ROUTE and DVB-MABR flute.
 .br
 - ATSC 3.0 mode is identified by the URL atsc://.
 .br
@@ -6605,7 +6682,7 @@ The filter can work in cached mode, source mode or standalone mode.
 .SH Cached mode
 .LP
 .br
-The cached mode is the default filter behavior. It populates GPAC HTTP Cache with the received files, using http://groute/serviceN/ as service root, N being the ROUTE service ID.
+The cached mode is the default filter behavior. It populates GPAC HTTP Cache with the received files, using http://gmcast/serviceN/ as service root, N being the multicast service ID.
 .br
 In cached mode, repeated files are always pushed to cache.
 .br
@@ -6615,19 +6692,19 @@ The maximum number of media segment objects in cache per service is defined by .
 .br
 The cached MPD is assigned the following headers:
 .br
-* `x-route`: integer value, indicates the ROUTE service ID.
+* `x-mcast`: boolean value, if yes indicates the file comes from a multicast.
 .br
-* `x-route-first-seg`: string value, indicates the name of the first segment (completely or currently being) retrieved from the broadcast.
+* `x-mcast-first-seg`: string value, indicates the name of the first segment (completely or currently being) retrieved from the broadcast.
 .br
-* `x-route-ll`: boolean value, if yes indicates that the indicated first segment is currently being received (low latency signaling).
+* `x-mcast-ll`: boolean value, if yes indicates that the indicated first segment is currently being received (low latency signaling).
 .br
-* `x-route-loop`: boolean value, if yes indicates a loop (e.g. pcap replay) in the service has been detected - only checked if .I cloop is set.
+* `x-mcast-loop`: boolean value, if yes indicates a loop (e.g. pcap replay) in the service has been detected - only checked if .I cloop is set.
 .br
   
 .br
 The cached files are assigned the following headers:
 .br
-* `x-route`: boolean value, if yes indicates the file comes from an ROUTE session.
+* `x-mcast`: boolean value, if yes indicates the file comes from a multicast.
 .br
 
 .br
@@ -6703,7 +6780,7 @@ route add -net 224.0.23.60/32 -interface vboxnet0
 .br
 
 .br
-Then for each ROUTE service in the multicast:
+Then for each multicast service in the multicast:
 .br
 Example
 .br
@@ -6767,6 +6844,8 @@ repair (enum, default: simple): repair mode for corrupted files
 repair_url (cstr):             repair url
 .br
 max_sess (uint, default: 1):   max number of concurrent HTTP repair sessions
+.br
+llmode (bool, default: true):  enable low-latency access
 .br
 
 .br
@@ -9303,6 +9382,21 @@ No options
 .br
 
 .br
+.SH ttmlmerge
+.LP
+.br
+Description: TTML sample merger
+.br
+
+.br
+Merge input samples into a single TTML sample. Merging restarts at the start of DASH segments.
+.br
+
+.br
+No options
+.br
+
+.br
 .SH uncvdec
 .LP
 .br
@@ -9631,6 +9725,28 @@ Only a subset of CEA 608/708 is supported.
 
 .br
 No options
+.br
+
+.br
+.SH scte35dec
+.LP
+.br
+Description: SCTE35 decoder
+.br
+
+.br
+This filter extracts SCTE-35 markers attached as properties to audio and video
+.br
+packets as 23001-18 'emib' boxes. It also creates empty 'emeb' box in between
+.br
+following segmentation as hinted by the graph.
+.br
+
+.br
+.SH Options (expert):
+.LP
+.br
+segdur (frac, default: 1/1):   segmentation duration in seconds. 0/0 flushes immediately for each input packet (beware of the bitrate overhead)
 .br
 
 .br

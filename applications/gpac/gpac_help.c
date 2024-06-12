@@ -78,6 +78,7 @@ const char *gpac_doc =
 "  - `file@FILE`: load data from local `FILE` (opened in binary mode).\n"
 "  - `bxml@FILE`: binarize XML from local `FILE` - see https://wiki.gpac.io/xmlformats/NHML-Format.\n"
 "  - `b64@DATA`: load data from base-64 encoded `DATA`.\n"
+"  - `FMT@val`: load values from val (comma-separated list) with `FMT` being `u8`, `s8`, `u16`, `s16`, `u32`, `s32`, `u64`, `s64`, `flt`, `dbl`, `hex` or `str`.\n"
 "- pointer: pointer address as formatted by `%p` in C.\n"
 "- string lists: formatted as `val1,val2[,...]`. Each value can also use `file@FILE` syntax.\n"
 "- integer lists: formatted as `val1,val2[,...]`\n"
@@ -98,14 +99,14 @@ const char *gpac_doc =
 "This will fail to extract it and keep `:opt=VAL` as part of the URL.\n"
 "The escape mechanism is not needed for local source, for which file existence is probed during argument parsing. "
 "It is also not needed for builtin protocol handlers (`avin://`, `video://`, `audio://`, `pipe://`)\n"
-"For `tcp://` and `udp://` protocols, the escape is not needed if a trailing `/` is appended after the port number.\n"
+"For schemes not using a server path, e.g. `tcp://` and `udp://`, the escape is not needed if a trailing `/` is appended after the port number.\n"
 "EX -i tcp://127.0.0.1:1234:OPT\n"
 "This will fail to extract the URL and options.\n"
 "EX -i tcp://127.0.0.1:1234/:OPT\n"
 "This will extract the URL and options.\n"
 "Note: one trick to avoid the escape sequence is to declare the URLs option at the end, e.g. `f1:opt1=foo:url=http://bar`, provided you have only one URL parameter to specify on the filter.\n"
 "\n"
-"It is possible to disable option parsing (for string options) by duplicating the separator.\n"
+"It is possible to locally disable option parsing (usefull for string options) by duplicating the separator.\n"
 "EX filter::opt1=UDP://IP:PORT/:someopt=VAL::opt2=VAL2\n"
 "This will pass `UDP://IP:PORT/:someopt=VAL` to `opt1` without inspecting it, and `VAL2` to `opt2`.\n"
 "  \n"
@@ -432,6 +433,10 @@ const char *gpac_doc =
 "This will assign DASH AdaptationSet ID to the PID ID value.\n"
 "EX gpac -i source.ts:#RepresentationID=$ServiceID$\n"
 "This will assign DASH Representation ID to the PID ServiceID value.\n"
+"\n"
+"A property can also be removed by not specifying any value. Condiftional removal is possible using the above syntax.\n"
+"EX gpac -i source.ts:#FOO=\n"
+"This will remove the `FOO` property on the output PID.\n"
 "\n"
 "# Using option files\n"
 "It is possible to use a file to define options of a filter, by specifying the target file name as an option without value, i.e. `:myopts.txt`.\n"
@@ -901,6 +906,16 @@ static const char *gpac_defer =
 "This will load SRC and reframer, print the graph (no connection), relink SRC, print the graph (connection to reframer), insert inspect, print the graph (no connection), relink reframer and run. No play event is sent here.\n"
 "EX gpac -dl -np -i SRC reframer inspect:deep -g -rl=2 -g -rl -se\n"
 "This will load SRC, reframer and inspect, print the graph (no connection), relink SRC, print the graph (connection to reframer), print the graph (no connection), relink reframer, send play and run.\n"
+"\n"
+"Linking can be done once filters are loaded, using the syntax `@F@SRC` or `@@F@SRC`:\n"
+"- `@F` indicates the destination filter using a 0-based index `F` starting from the last laoded filter, e.g. `@0` indicates the last loaded filter.\n"
+"- `@@F` indicates the target filter using a 0-based index `F` starting from the first laoded filter, e.g. `@@1` indicates the second loaded filter.\n"
+"- `@SRC`or `@@SRC`: same syntax as link directives\n"
+"Sources MUST be set before relinking outputs using (-rl)[].\n"
+"EX gpac -dl -i SRC F1 F2 [...] @1@2 @0@2\n"
+"This will set SRC as source to F1 and SRC as source to F2 after loading all filters.\n"
+"\n"
+"The following options are used in defer mode:\n\n",
 };
 #endif
 static GF_GPACArg gpac_defer_args[] =
@@ -912,13 +927,14 @@ static GF_GPACArg gpac_defer_args[] =
 	GF_DEF_ARG("pi=[+|-][F[:i]]", NULL, "print PID properties (all or of index `i`) of filter `F` (default 0)\n"
 	"- if prefixed with `-`: only list PIDs\n"
 	"- if prefixed with `+`: also print PID info", NULL, NULL, GF_ARG_STRING, GF_ARG_HINT_EXPERT),
-	GF_DEF_ARG("pl=[+][F[:i]]@NAME", NULL, "probe filter chain from filter `F` (default 0) to the given filter `NAME`: \n"
+	GF_DEF_ARG("pl=[+][F[:i]]@NAME", NULL, "probe filter chain from filter `F` (default 0) to the given filter `NAME`:\n"
 		"- if prefixed with `+`: print all known chains and their priorities", NULL, NULL, GF_ARG_STRING, GF_ARG_HINT_EXPERT),
 	GF_DEF_ARG("pd=[F[:i]]", NULL, "print possible PID destinations (all or of index `i`) of filter `F` (default 0)", NULL, NULL, GF_ARG_STRING, GF_ARG_HINT_EXPERT),
 	GF_DEF_ARG("f", NULL, "flush session until no more tasks", NULL, NULL, GF_ARG_BOOL, GF_ARG_HINT_EXPERT),
 	GF_DEF_ARG("g", NULL, "print graph", NULL, NULL, GF_ARG_BOOL, GF_ARG_HINT_EXPERT),
 	GF_DEF_ARG("s", NULL, "print stats", NULL, NULL, GF_ARG_BOOL, GF_ARG_HINT_EXPERT),
 	GF_DEF_ARG("se", NULL, "send PLAY event from sinks (only done once)", NULL, NULL, GF_ARG_BOOL, GF_ARG_HINT_EXPERT),
+	GF_DEF_ARG("m", NULL, "print message", NULL, NULL, GF_ARG_STRING, GF_ARG_HINT_EXPERT),
 	{0}
 };
 

@@ -75,7 +75,7 @@ enum
 	GF_M2TS_ISO_639_LANGUAGE_DESCRIPTOR						= 0x0A,
 	GF_M2TS_DVB_IP_MAC_PLATFORM_NAME_DESCRIPTOR				= 0x0C,
 	GF_M2TS_DVB_IP_MAC_PLATFORM_PROVIDER_NAME_DESCRIPTOR	= 0x0D,
-	GF_M2TS_DVB_TARGET_IP_SLASH_DESCRIPTOR			= 0x0F,
+	GF_M2TS_PRIVATE_DATA_INDICATOR_DESCRIPTOR			= 0x0F,
 	/* ... */
 	GF_M2TS_DVB_STREAM_LOCATION_DESCRIPTOR        =0x13,
 	/* ... */
@@ -2026,6 +2026,19 @@ void gf_m2ts_mux_program_force_keep_ts(GF_M2TS_Mux_Program *program);
 \param refresh_rate_ms the refresh rate for the SDT. A value of 0 only sends the SDT once
 */
 void gf_m2ts_mux_enable_sdt(GF_M2TS_Mux *muxer, u32 refresh_rate_ms);
+
+/*! update a given table
+\param stream target stream carrying the section
+\param table_id ID of the table
+\param table_id_extension extended ID of the table
+\param table_payload payload to send
+\param table_payload_length payload length to send
+\param use_syntax_indicator  inject section syntax extension (extended ID and fragmentation info of the table)
+\param private_indicator private indicator flag of section header
+*/
+void gf_m2ts_mux_table_update(GF_M2TS_Mux_Stream *stream, u8 table_id, u16 table_id_extension,
+                              u8 *table_payload, u32 table_payload_length,
+                              Bool use_syntax_indicator, Bool private_indicator);
 
 #endif /*GPAC_DISABLE_MPEG2TS_MUX*/
 
