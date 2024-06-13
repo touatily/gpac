@@ -590,11 +590,11 @@ static void repair_session_done(ROUTEInCtx *ctx, RouteRepairSession *rsess, GF_E
 	if (!rsi) return;
 
 	//notify routedmx we have received a byte range
-	gf_routedmx_patch_frag_info(ctx->route_dmx, rsi->service_id, &rsi->finfo, rsess->range->br_start, rsess->range->done);
-	if(rsess->range->br_end == rsess->range->done) {
+	gf_routedmx_patch_frag_info(ctx->route_dmx, rsi->service_id, &rsi->finfo, rsess->range->br_start, rsess->range->br_start + rsess->range->done);
+	if(rsess->range->br_end == rsess->range->br_start + rsess->range->done) {
 		GF_LOG(GF_LOG_INFO, GF_LOG_ROUTE, ("[REPAIR] Successfully repaired data interval [%u, %u] \n", rsess->range->br_start, rsess->range->br_end));
 	} else {
-		GF_LOG(GF_LOG_INFO, GF_LOG_ROUTE, ("[REPAIR] Failed to repair entire data interval [%u, %u]. Only sub-interval [%u, %u] was received.. \n", rsess->range->br_start, rsess->range->br_end, rsess->range->br_start, rsess->range->done));
+		GF_LOG(GF_LOG_INFO, GF_LOG_ROUTE, ("[REPAIR] Failed to repair entire data interval [%u, %u]. Only sub-interval [%u, %u] was received.. \n", rsess->range->br_start, rsess->range->br_end, rsess->range->br_start, rsess->range->br_start+rsess->range->done));
 	}
 
 	rsess->current_si = NULL;
