@@ -367,7 +367,7 @@ static void route_repair_build_ranges_isobmf(ROUTEInCtx *ctx, RepairSegmentInfo 
 			rr->br_start = pos;
 			rr->br_end = MIN(finfo->total_size, pos + min_size);
 
-			GF_LOG(GF_LOG_INFO, GF_LOG_ROUTE, ("[REPAIR] adding repair range [%u, %u] \n", rr->br_start, rr->br_end));
+			GF_LOG(GF_LOG_INFO, GF_LOG_ROUTE, ("[REPAIR] Repair top_level boxes: adding range [%u, %u[ for repair\n", rr->br_start, rr->br_end));
 
 			gf_list_add(rsi->ranges, rr);
 			rsi->last_pos_repair_top_level = rr->br_start;
@@ -376,7 +376,7 @@ static void route_repair_build_ranges_isobmf(ROUTEInCtx *ctx, RepairSegmentInfo 
 			box_size = GF_4CC(finfo->blob->data[pos], finfo->blob->data[pos+1], finfo->blob->data[pos+2], finfo->blob->data[pos+3]);
 			box_type = GF_4CC(finfo->blob->data[pos+4], finfo->blob->data[pos+5], finfo->blob->data[pos+6], finfo->blob->data[pos+7]);
 			if(pos + box_size > finfo->total_size) {
-				GF_LOG(GF_LOG_WARNING, GF_LOG_ROUTE, ("[REPAIR] Corrupted data: top-level box range [%u, %u] exceeds segment size %u \n", pos, pos+box_size, finfo->total_size));
+				GF_LOG(GF_LOG_WARNING, GF_LOG_ROUTE, ("[REPAIR] Corrupted data: top-level box range [%u, %u[ exceeds segment size %u \n", pos, pos+box_size, finfo->total_size));
 				return;
 			}
 			if ((box_type != GF_4CC('m', 'd', 'a', 't')) && (box_type != GF_4CC('i', 'd', 'a', 't'))) {
@@ -397,7 +397,7 @@ static void route_repair_build_ranges_isobmf(ROUTEInCtx *ctx, RepairSegmentInfo 
 					rr->br_start = pos;
 					rr->br_end = MIN(finfo->total_size, MAX(pos + box_size, pos + min_size));
 
-					GF_LOG(GF_LOG_INFO, GF_LOG_ROUTE, ("[REPAIR] adding repair range [%u, %u] \n", rr->br_start, rr->br_end));
+					GF_LOG(GF_LOG_INFO, GF_LOG_ROUTE, ("[REPAIR] Repair top_level boxes: adding range [%u, %u[ for repair\n", rr->br_start, rr->br_end));
 
 					gf_list_add(rsi->ranges, rr);
 					rsi->last_pos_repair_top_level = rr->br_start;
@@ -642,9 +642,9 @@ static void repair_session_done(ROUTEInCtx *ctx, RouteRepairSession *rsess, GF_E
 	//notify routedmx we have received a byte range
 	gf_routedmx_patch_frag_info(ctx->route_dmx, rsi->service_id, &rsi->finfo, rsess->range->br_start, rsess->range->br_start + rsess->range->done);
 	if(rsess->range->br_end == rsess->range->br_start + rsess->range->done) {
-		GF_LOG(GF_LOG_INFO, GF_LOG_ROUTE, ("[REPAIR] Successfully repaired data interval [%u, %u] \n", rsess->range->br_start, rsess->range->br_end));
+		GF_LOG(GF_LOG_INFO, GF_LOG_ROUTE, ("[REPAIR] Successfully repaired data interval [%u, %u[ \n", rsess->range->br_start, rsess->range->br_end));
 	} else {
-		GF_LOG(GF_LOG_INFO, GF_LOG_ROUTE, ("[REPAIR] Failed to repair entire data interval [%u, %u]. Only sub-interval [%u, %u] was received.. \n", rsess->range->br_start, rsess->range->br_end, rsess->range->br_start, rsess->range->br_start+rsess->range->done));
+		GF_LOG(GF_LOG_INFO, GF_LOG_ROUTE, ("[REPAIR] Failed to repair entire data interval [%u, %u[. Only sub-interval [%u, %u[ was received.. \n", rsess->range->br_start, rsess->range->br_end, rsess->range->br_start, rsess->range->br_start+rsess->range->done));
 	}
 
 	rsess->current_si = NULL;
