@@ -408,35 +408,85 @@ static void route_repair_build_ranges_isobmf(ROUTEInCtx *ctx, RepairSegmentInfo 
 	}
 }
 
+static u32 routein_repair_isobmf_frames(ROUTEInCtx *ctx, RepairSegmentInfo *rsi, SampleRangeDependency *r, u32 threshold) {
+	// add byte ranges to "rsi->ranges" for repair
+	u32 nb_renages = 0;
+	u32 i;
+	RouteRepairRange *rr = NULL;
+
+	for (i=0; i<=rsi->finfo.nb_frags; i++) {
+		u32 br_start = 0, br_end = 0;
+		// first range
+		if (!i) {
+			br_end = rsi->finfo.frags[i].offset;
+		}
+		//middle ranges
+		else if (i < rsi->finfo.nb_frags) {
+			br_start = rsi->finfo.frags[i-1].offset + rsi->finfo.frags[i-1].size;
+			br_end = rsi->finfo.frags[i].offset;
+		}
+		//last range
+		else {
+			br_start = rsi->finfo.frags[rsi->finfo.nb_frags-1].offset + rsi->finfo.frags[rsi->finfo.nb_frags-1].size;
+			br_end = UINT32_MAX;
+		}
+
+		//this was correctly received !
+		if (br_end <= br_start) continue;
+		//byte range is before sample range
+		if (br_end <= r->offset) continue;
+
+		if (br_end > r->offset && br_start < r->offset+r->size) {
+
+			if(rr && br_start - rr->br_end < threshold) {
+				rr->br_end = br_end;
+			} else {
+				if(rr) {
+					nb_renages++;
+					gf_list_add(rsi->ranges, rr);
+					GF_LOG(GF_LOG_INFO, GF_LOG_ROUTE, ("[REPAIR] Repair frames: adding range [%u, %u[ for repair\n", rr->br_start, rr->br_end));
+				}
+
+				rr = gf_list_pop_back(ctx->seg_range_reservoir);
+				if (!rr) {
+					GF_SAFEALLOC(rr, RouteRepairRange);
+					if (!rr) {
+						rsi->nb_errors++;
+						continue;
+					}
+				} else {
+					memset(rr, 0, sizeof(RouteRepairRange));
+				}
+
+				rr->br_start = MAX(r->offset, br_start);
+				rr->br_end = MIN(r->offset + r->size, br_end);
+			}
+		}
+		//byte range is after sample range
+		if (br_start >= r->offset + r->size) {
+			if(rr) {
+				nb_renages++;
+				gf_list_add(rsi->ranges, rr);
+				GF_LOG(GF_LOG_INFO, GF_LOG_ROUTE, ("[REPAIR] Repair frames: adding range [%u, %u[ for repair\n", rr->br_start, rr->br_end));
+			}
+			break;
+		}
+	}
+
+	return nb_renages;
+}
+
 static void route_repair_isobmf_mdat_box(ROUTEInCtx *ctx, RepairSegmentInfo *rsi) {
 	u32 nb_ranges, i;
+	u32 threshold = 1024;
 	
 	routein_repair_get_isobmf_deps(rsi->finfo.filename, rsi->finfo.blob, &rsi->srd, &nb_ranges);
 
 	for (i=0; i<nb_ranges; i++) {
 		SampleRangeDependency *r = &rsi->srd[i];
 		if(r->id == r->dep_id) {
-			// I image
-			if(! does_belong(rsi->finfo.frags, rsi->finfo.nb_frags, r->offset, r->size)) {
-				// repair !
-				RouteRepairRange *rr = gf_list_pop_back(ctx->seg_range_reservoir);
-				if (!rr) {
-					GF_SAFEALLOC(rr, RouteRepairRange);
-					if (!rr) {
-						rsi->nb_errors++;
-						return;
-					}
-				} else {
-					memset(rr, 0, sizeof(RouteRepairRange));
-				}
+			routein_repair_isobmf_frames(ctx, rsi, r, threshold);
 
-				rr->br_start = r->offset;
-				rr->br_end = r->offset + r->size;
-
-				GF_LOG(GF_LOG_INFO, GF_LOG_ROUTE, ("[REPAIR] (Intra image) adding repair range [%u, %u] \n", rr->br_start, rr->br_end));
-
-				gf_list_add(rsi->ranges, rr);
-			}
 		} else if(r->type == 2) {
 			continue;
 		}
