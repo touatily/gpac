@@ -264,6 +264,7 @@ typedef struct
 	Bool post_play_events;
 
 	Bool force_period_switch;
+	GF_Fraction64 period_switch_cts;
 	Bool period_not_ready;
 	Bool check_connections;
 
@@ -738,7 +739,7 @@ static GF_Err dasher_stream_period_changed(GF_Filter *filter, GF_DasherCtx *ctx,
 
 		base_ds = ds->muxed_base ? ds->muxed_base : ds;
 		if (is_new_period_request) {
-			GF_LOG(GF_LOG_INFO, GF_LOG_DASH, ("[Dasher] New period requested during PID %s reconfiguration\n", gf_filter_pid_get_name(ds->ipid) ));
+			GF_LOG(GF_LOG_INFO, GF_LOG_DASH, ("[Dasher] New period requested for PID %s\n", gf_filter_pid_get_name(ds->ipid) ));
 		} else {
 			GF_LOG(GF_LOG_WARNING, GF_LOG_DASH, ("[Dasher] PID %s config changed during active period, forcing period switch\n", gf_filter_pid_get_name(ds->ipid) ));
 		}
@@ -756,6 +757,12 @@ static GF_Err dasher_stream_period_changed(GF_Filter *filter, GF_DasherCtx *ctx,
 		}
 
 		ctx->force_period_switch = GF_TRUE;
+		if (!ctx->period_switch_cts.den
+			|| gf_timestamp_less(ds->period_continuity_next_cts, ds->timescale, ctx->period_switch_cts.num, ctx->period_switch_cts.den)
+		) {
+			ctx->period_switch_cts.num = ds->period_continuity_next_cts;
+			ctx->period_switch_cts.den = ds->timescale;
+		}
 		dasher_update_period_duration(ctx, GF_TRUE);
 	}
 	//remove stream from period
@@ -1188,17 +1195,9 @@ static GF_Err dasher_configure_pid(GF_Filter *filter, GF_FilterPid *pid, Bool is
 		if (prev_stream_type==ds->stream_type)
 			period_switch = GF_FALSE;
 
-		CHECK_PROP(GF_PROP_PID_BITRATE, ds->bitrate, GF_EOS)
-		if (!ds->bitrate && prev_bitrate) {
-			ds->bitrate = prev_bitrate;
-			period_switch = GF_FALSE;
-		}
-		if (ds->bitrate && period_switch) {
-			//allow 20% variation in bitrate, otherwise force period switch
-			if ((ds->bitrate <= 120 * prev_bitrate / 100) && (ds->bitrate >= 80 * prev_bitrate / 100)) {
-				period_switch = GF_FALSE;
-			}
-		}
+		//ignore bitrate changes for period switch detection as this may change quite a lot when loading from playlists
+		p = gf_filter_pid_get_property(pid, GF_PROP_PID_BITRATE);
+		ds->bitrate = p ? p->value.uint : prev_bitrate;
 
 		CHECK_PROP(GF_PROP_PID_CODECID, ds->codec_id, GF_NOT_SUPPORTED)
 		CHECK_PROP(GF_PROP_PID_TIMESCALE, ds->timescale, GF_NOT_SUPPORTED)
@@ -4422,7 +4421,7 @@ static void dasher_setup_sources(GF_Filter *filter, GF_DasherCtx *ctx, GF_MPD_Ad
 				dasher_open_destination(filter, ctx, rep, szInitSegmentFilename,
 					(skip_init_type==DASH_INITSEG_NONE) ? DASH_INITSEG_NONE : (set->bitstream_switching ? DASH_INITSEG_SKIP : DASH_INITSEG_PRESENT));
 			}
-			//first rep in set and no bs switching or mutliple templates, create segment template at rep level
+			//first rep in set and no bs switching or multiple templates, create segment template at rep level
 			else if (i || !single_template) {
 				GF_SAFEALLOC(seg_template, GF_MPD_SegmentTemplate);
 				if (seg_template) {
@@ -9214,6 +9213,15 @@ static GF_Err dasher_process(GF_Filter *filter)
 				count--;
 				break;
 			}
+			//period switch in progress, do not dash more tha requested
+			else if (ctx->force_period_switch && ctx->period_switch_cts.den) {
+				if (gf_timestamp_greater_or_equal(cts, ds->timescale, ctx->period_switch_cts.num, ctx->period_switch_cts.den)) {
+					dasher_stream_period_changed(filter, ctx, ds, GF_TRUE);
+					i--;
+					count--;
+					break;
+				}
+			}
 			//force flush mode, segment is done upon eos
 			else if (ctx->force_flush) {
 			}
@@ -10686,7 +10694,7 @@ static const GF_FilterArgs DasherArgs[] =
 	"- intra: ignore SAP types greater than 3 on all media types"
 	, GF_PROP_UINT, "off", "off|sig|on|intra", GF_FS_ARG_HINT_EXPERT},
 
-	{ OFFS(subs_sidx), "number of subsegments per sidx. negative value disables sidx. Only used to inherit sidx option of destination", GF_PROP_SINT, "-1", NULL, GF_FS_ARG_HINT_EXPERT},
+	{ OFFS(subs_sidx), "number of subsegments per sidx. Negative value disables sidx. Only used to inherit sidx option of destination", GF_PROP_SINT, "-1", NULL, GF_FS_ARG_HINT_EXPERT},
 	{ OFFS(cmpd), "skip line feed and spaces in MPD XML for compactness", GF_PROP_BOOL, "false", NULL, GF_FS_ARG_HINT_EXPERT},
 	{ OFFS(styp), "indicate the 4CC to use for styp boxes when using ISOBMFF output", GF_PROP_STRING, NULL, NULL, GF_FS_ARG_HINT_EXPERT},
 	{ OFFS(dual), "indicate to produce both MPD and M3U files", GF_PROP_BOOL, NULL, NULL, GF_FS_ARG_HINT_ADVANCED},

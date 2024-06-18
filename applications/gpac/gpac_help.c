@@ -434,7 +434,7 @@ const char *gpac_doc =
 "EX gpac -i source.ts:#RepresentationID=$ServiceID$\n"
 "This will assign DASH Representation ID to the PID ServiceID value.\n"
 "\n"
-"A property can also be removed by not specifying any value. Condiftional removal is possible using the above syntax.\n"
+"A property can also be removed by not specifying any value. Conditional removal is possible using the above syntax.\n"
 "EX gpac -i source.ts:#FOO=\n"
 "This will remove the `FOO` property on the output PID.\n"
 "\n"
@@ -816,6 +816,7 @@ static GF_GPACArg gpac_args[] =
 	GF_DEF_ARG("genmd", NULL, "generate markdown doc", NULL, NULL, GF_ARG_BOOL, GF_ARG_HINT_HIDE),
 	GF_DEF_ARG("xopt", NULL, "unrecognized options and filters declaration following this option are ignored - used to pass arguments to GUI", NULL, NULL, GF_ARG_BOOL, GF_ARG_HINT_EXPERT),
 	GF_DEF_ARG("creds", NULL, "setup credentials as used by servers", NULL, NULL, GF_ARG_STRING, GF_ARG_HINT_EXPERT),
+	GF_DEF_ARG("rv", NULL, "return absolute value of GPAC internal error instead of 1 when error", NULL, NULL, GF_ARG_BOOL, GF_ARG_HINT_EXPERT),
 
 #ifdef GPAC_CONFIG_IOS
 	GF_DEF_ARG("req-gl", NULL, "forces loading SDL - iOS only", NULL, NULL, GF_ARG_BOOL, GF_ARG_HINT_EXPERT),
