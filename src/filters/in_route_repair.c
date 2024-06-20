@@ -476,20 +476,53 @@ static u32 routein_repair_isobmf_frames(ROUTEInCtx *ctx, RepairSegmentInfo *rsi,
 	return nb_rr;
 }
 
+static void route_repair_topological_sort_samples(SampleRangeDependency srd[], u32 nb_ranges, SampleRangeDependency* sorted_samples[]) {
+	
+	u32 i;
+	u32 j=0;
+	//look for intra images !
+	for(i=0; i < nb_ranges; i++) {
+		srd[i].mark = 0;
+		if(srd[i].id == srd[i].dep_id) {
+			sorted_samples[j] = &srd[i];
+			srd[i].mark = 1;
+			j++;
+		}
+	}
+
+	for(i=0; i<nb_ranges && i<j; i++) {
+		u32 k;
+		for(k=0; k < nb_ranges; k++) {
+			if(srd[k].dep_id == srd[i].id && !srd[k].mark) {
+				sorted_samples[j] = &srd[k];
+				srd[k].mark = 1;
+				j++;
+			}
+		}
+	}
+
+	if(j < nb_ranges) {
+		GF_LOG(GF_LOG_WARNING, GF_LOG_ROUTE, ("[REPAIR] Problem in dependencies: not all samples are in sorted_samples (%u < %u) \n", j, nb_ranges));
+	}
+}
+
 static void route_repair_isobmf_mdat_box(ROUTEInCtx *ctx, RepairSegmentInfo *rsi) {
 	u32 nb_ranges, i;
 	u32 threshold = 1024;
 	
 	routein_repair_get_isobmf_deps(rsi->finfo.filename, rsi->finfo.blob, &rsi->srd, &nb_ranges);
+	if(! nb_ranges) {
+		GF_LOG(GF_LOG_WARNING, GF_LOG_ROUTE, ("[REPAIR] Something went wrong when computing dependencies (number of samples=%u) \n", nb_ranges));
+		return;
+	}
 
-	for (i=0; i<nb_ranges; i++) {
-		SampleRangeDependency *r = &rsi->srd[i];
-		if(r->id == r->dep_id) {
+	SampleRangeDependency* sorted_samples[nb_ranges];
+
+	route_repair_topological_sort_samples(rsi->srd, nb_ranges, sorted_samples);
+
+	for(i=0; i<nb_ranges; i++) {
+		SampleRangeDependency *r = sorted_samples[i];
 			routein_repair_isobmf_frames(ctx, rsi, r, threshold);
-
-		} else if(r->type == 2) {
-			continue;
-		}
 	}
 
 	gf_free(rsi->srd);

@@ -129,6 +129,8 @@ typedef struct __sample_dep
 	//1: random access
 	//2: leaf temporal level, discardable right away
 	u8 type;
+	//used in sort algorithm
+	u8 mark;
 } SampleRangeDependency;
 
 struct _route_repair_seg_info
@@ -144,7 +146,7 @@ struct _route_repair_seg_info
 	Bool was_partial;
 
 	u32 state; //doing top-level boxes (except mdat; header only) or repairing level 0, level 1, 
-	SampleRangeDependency* srd; // valid once all top headers moof are ok
+	SampleRangeDependency* srd; // valid once all top headers moof are ok (array of frames)
 	u32 last_pos_repair_top_level; 
 };
 
