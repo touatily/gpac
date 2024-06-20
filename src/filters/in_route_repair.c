@@ -444,7 +444,7 @@ static u32 routein_repair_isobmf_frames(ROUTEInCtx *ctx, RepairSegmentInfo *rsi,
 				if(rr) {
 					nb_rr++;
 					gf_list_add(rsi->ranges, rr);
-					GF_LOG(GF_LOG_INFO, GF_LOG_ROUTE, ("[REPAIR] Repair frames: adding range [%u, %u[ for repair\n", rr->br_start, rr->br_end));
+					GF_LOG(GF_LOG_INFO, GF_LOG_ROUTE, ("[REPAIR] Repair (TSI=%u, TOI=%u) frame ID #%3u: adding range [%u, %u[ for repair\n", rsi->finfo.tsi, rsi->finfo.toi, r->id, rr->br_start, rr->br_end));
 				}
 
 				rr = gf_list_pop_back(ctx->seg_range_reservoir);
@@ -467,7 +467,7 @@ static u32 routein_repair_isobmf_frames(ROUTEInCtx *ctx, RepairSegmentInfo *rsi,
 			if(rr) {
 				nb_rr++;
 				gf_list_add(rsi->ranges, rr);
-				GF_LOG(GF_LOG_INFO, GF_LOG_ROUTE, ("[REPAIR] Repair frames: adding range [%u, %u[ for repair\n", rr->br_start, rr->br_end));
+				GF_LOG(GF_LOG_INFO, GF_LOG_ROUTE, ("[REPAIR] Repair (TSI=%u, TOI=%u) frame ID #%3u: adding range [%u, %u[ for repair\n", rsi->finfo.tsi, rsi->finfo.toi, r->id, rr->br_start, rr->br_end));
 			}
 			break;
 		}
@@ -522,7 +522,7 @@ static void route_repair_isobmf_mdat_box(ROUTEInCtx *ctx, RepairSegmentInfo *rsi
 
 	for(i=0; i<nb_ranges; i++) {
 		SampleRangeDependency *r = sorted_samples[i];
-			routein_repair_isobmf_frames(ctx, rsi, r, threshold);
+		routein_repair_isobmf_frames(ctx, rsi, r, threshold);
 	}
 
 	gf_free(rsi->srd);
@@ -675,9 +675,9 @@ static void repair_session_done(ROUTEInCtx *ctx, RouteRepairSession *rsess, GF_E
 	//notify routedmx we have received a byte range
 	gf_routedmx_patch_frag_info(ctx->route_dmx, rsi->service_id, &rsi->finfo, rsess->range->br_start, rsess->range->br_start + rsess->range->done);
 	if(rsess->range->br_end == rsess->range->br_start + rsess->range->done) {
-		GF_LOG(GF_LOG_INFO, GF_LOG_ROUTE, ("[REPAIR] Successfully repaired data interval [%u, %u[ \n", rsess->range->br_start, rsess->range->br_end));
+		GF_LOG(GF_LOG_INFO, GF_LOG_ROUTE, ("[REPAIR] Successfully repaired data interval [%u, %u[ of object (TSI=%u, TOI=%u) \n", rsess->range->br_start, rsess->range->br_end, rsi->finfo.tsi, rsi->finfo.toi));
 	} else {
-		GF_LOG(GF_LOG_INFO, GF_LOG_ROUTE, ("[REPAIR] Failed to repair entire data interval [%u, %u[. Only sub-interval [%u, %u[ was received.. \n", rsess->range->br_start, rsess->range->br_end, rsess->range->br_start, rsess->range->br_start+rsess->range->done));
+		GF_LOG(GF_LOG_INFO, GF_LOG_ROUTE, ("[REPAIR] Failed to repair entire data interval [%u, %u[ of object (TSI=%u, TOI=%u). Only sub-interval [%u, %u[ was received.. \n", rsess->range->br_start, rsess->range->br_end, rsi->finfo.tsi, rsi->finfo.toi, rsess->range->br_start, rsess->range->br_start+rsess->range->done));
 	}
 
 	rsess->current_si = NULL;
