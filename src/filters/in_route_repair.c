@@ -700,14 +700,13 @@ restart:
 		u32 i, count;
 		count = gf_list_count(ctx->seg_repair_queue);
 		for (i=0; i<count;i++) {
-			u32 j, nb_ranges;
+			u32 nb_ranges;
 			rsi = gf_list_get(ctx->seg_repair_queue, i);
 			nb_ranges = gf_list_count(rsi->ranges);
-			for (j=0; j<nb_ranges; j++) {
-				rr = gf_list_get(rsi->ranges, j);
-				//todo check priotiry
+			if(nb_ranges) {
+				rr = gf_list_get(rsi->ranges, 0);
+				break;
 			}
-			if (rr) break;
 			rsi = NULL;
 		}
 		if (!rsi) return;
