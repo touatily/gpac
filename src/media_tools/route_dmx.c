@@ -795,12 +795,20 @@ static void gf_route_obj_to_reservoir(GF_ROUTEDmx *routedmx, GF_ROUTEService *s,
 	obj->ll_map_last = 0;
 	obj->flute_type = 0;
 
-	obj->rlct = NULL;
 	//flute rlct file, delete
 	if (obj->rlct_file && (obj->rlct_file->fdt_tsi || obj->rlct_file->can_remove)) {
+		u32 i, count = gf_list_count(obj->rlct->static_files);
+		for (i=0; i<count; i++) {
+			GF_ROUTELCTFile *rf = gf_list_get(obj->rlct->static_files, i);
+			if (rf->filename == obj->rlct_file->filename) {
+				gf_list_rem(obj->rlct->static_files, i);
+				break;
+			}
+		}
 		if (obj->rlct_file->filename) gf_free(obj->rlct_file->filename);
 		gf_free(obj->rlct_file);
 	}
+	obj->rlct = NULL;
 	obj->rlct_file = NULL;
 	obj->toi = 0;
     obj->tsi = 0;
