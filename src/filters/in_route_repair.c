@@ -465,7 +465,7 @@ static u32 routein_repair_isobmf_frames(ROUTEInCtx *ctx, RepairSegmentInfo *rsi,
 		//last range
 		else {
 			br_start = rsi->finfo.frags[rsi->finfo.nb_frags-1].offset + rsi->finfo.frags[rsi->finfo.nb_frags-1].size;
-			br_end = UINT32_MAX;
+			br_end = rsi->finfo.total_size;
 		}
 
 		//this was correctly received !
@@ -501,13 +501,14 @@ static u32 routein_repair_isobmf_frames(ROUTEInCtx *ctx, RepairSegmentInfo *rsi,
 		}
 		//byte range is after sample range
 		if (br_start >= r->offset + r->size) {
-			if(rr) {
-				nb_rr++;
-				gf_list_add(rsi->ranges, rr);
-				GF_LOG(GF_LOG_INFO, GF_LOG_ROUTE, ("[REPAIR] Repair (TSI=%u, TOI=%u) frame ID #%3u: adding range [%u, %u[ for repair\n", rsi->finfo.tsi, rsi->finfo.toi, r->id, rr->br_start, rr->br_end));
-			}
 			break;
 		}
+	}
+
+	if(rr) {
+		nb_rr++;
+		gf_list_add(rsi->ranges, rr);
+		GF_LOG(GF_LOG_INFO, GF_LOG_ROUTE, ("[REPAIR] Repair (TSI=%u, TOI=%u) frame ID #%3u: adding range [%u, %u[ for repair\n", rsi->finfo.tsi, rsi->finfo.toi, r->id, rr->br_start, rr->br_end));
 	}
 
 	return nb_rr;
