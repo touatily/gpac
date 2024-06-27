@@ -725,6 +725,7 @@ void routein_queue_repair(ROUTEInCtx *ctx, GF_ROUTEEventType evt, u32 evt_param,
 	}
 
 	if(gf_list_count(rsi->ranges) == 0) {
+		if (rsi->filename) gf_free(rsi->filename);
 		gf_list_transfer(ctx->seg_range_reservoir, rsi->ranges);
 		gf_list_add(ctx->seg_range_reservoir, rsi->ranges);
 		gf_list_add(ctx->seg_range_reservoir, rsi);
