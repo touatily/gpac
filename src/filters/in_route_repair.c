@@ -544,28 +544,6 @@ static void route_repair_topological_sort_samples(SampleRangeDependency srd[], u
 	}
 }
 
-static void route_repair_isobmf_mdat_box(ROUTEInCtx *ctx, RepairSegmentInfo *rsi) {
-	u32 nb_ranges, i;
-	u32 threshold = 1024;
-	
-	routein_repair_get_isobmf_deps(rsi->finfo.filename, rsi->finfo.blob, &rsi->srd, &nb_ranges);
-	if(! nb_ranges) {
-		GF_LOG(GF_LOG_WARNING, GF_LOG_ROUTE, ("[REPAIR] Something went wrong when computing dependencies (number of samples=%u) \n", nb_ranges));
-		return;
-	}
-
-	SampleRangeDependency* sorted_samples[nb_ranges];
-
-	route_repair_topological_sort_samples(rsi->srd, nb_ranges, sorted_samples);
-
-	for(i=0; i<nb_ranges; i++) {
-		SampleRangeDependency *r = sorted_samples[i];
-		routein_repair_isobmf_frames(ctx, rsi, r, threshold);
-	}
-
-	gf_free(rsi->srd);
-}
-
 static void route_repair_build_ranges_full(ROUTEInCtx *ctx, RepairSegmentInfo *rsi, GF_ROUTEEventFileInfo *finfo)
 {
 	u32 i;
@@ -619,6 +597,29 @@ static void route_repair_build_ranges_full(ROUTEInCtx *ctx, RepairSegmentInfo *r
 		gf_list_add(rsi->ranges, rr);
 	}
 
+}
+
+static void route_repair_isobmf_mdat_box(ROUTEInCtx *ctx, RepairSegmentInfo *rsi) {
+	u32 nb_ranges, i;
+	u32 threshold = 1024;
+	
+	routein_repair_get_isobmf_deps(rsi->finfo.filename, rsi->finfo.blob, &rsi->srd, &nb_ranges);
+	if(! nb_ranges) {
+		GF_LOG(GF_LOG_WARNING, GF_LOG_ROUTE, ("[REPAIR] All samples have the same dependency level, switching to full repair \n", nb_ranges));
+		route_repair_build_ranges_full(ctx, rsi, &rsi->finfo);
+		return;
+	}
+
+	SampleRangeDependency* sorted_samples[nb_ranges];
+
+	route_repair_topological_sort_samples(rsi->srd, nb_ranges, sorted_samples);
+
+	for(i=0; i<nb_ranges; i++) {
+		SampleRangeDependency *r = sorted_samples[i];
+		routein_repair_isobmf_frames(ctx, rsi, r, threshold);
+	}
+
+	gf_free(rsi->srd);
 }
 
 void routein_queue_repair(ROUTEInCtx *ctx, GF_ROUTEEventType evt, u32 evt_param, GF_ROUTEEventFileInfo *finfo)
