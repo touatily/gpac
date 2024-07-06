@@ -482,6 +482,8 @@ enum
 	GF_ISOM_BOX_TYPE_JP  	= GF_4CC('j','P',' ',' '),
 	GF_ISOM_BOX_TYPE_JP2H	= GF_4CC('j','p','2','h'),
 	GF_ISOM_BOX_TYPE_JP2K	= GF_4CC('j','p','2','k'),
+	GF_ISOM_BOX_TYPE_J2KH	= GF_4CC('j','2','k','H'),
+	GF_ISOM_BOX_TYPE_CDEF	= GF_4CC('c','d','e','f'),
 
 	GF_ISOM_BOX_TYPE_JPEG	= GF_4CC('j','p','e','g'),
 	GF_ISOM_BOX_TYPE_PNG 	= GF_4CC('p','n','g',' '),
@@ -571,6 +573,9 @@ enum
 	GF_ISOM_BOX_TYPE_GDAT	= GF_4CC( 'g', 'd', 'a', 't' ),
 
 	GF_ISOM_BOX_TYPE_KEYS = GF_4CC( 'k', 'e', 'y', 's' ),
+
+
+	GF_GPAC_BOX_TYPE_SREF = GF_4CC( 'G', 'P', 'S', 'R' ),
 };
 
 enum
@@ -2105,6 +2110,20 @@ typedef struct
 
 typedef struct
 {
+	u32 sampleID;
+	u32 nb_refs;
+	u32 *sample_refs;
+} GF_SampleRefEntry;
+
+typedef struct
+{
+	GF_ISOM_FULL_BOX
+	GF_List *entries;
+	u32 id_shift;
+} GF_SampleReferences;
+
+typedef struct
+{
 	GF_ISOM_BOX
 	GF_TimeToSampleBox *TimeToSample;
 	GF_CompositionOffsetBox *CompositionOffset;
@@ -2119,6 +2138,7 @@ typedef struct
 	GF_DegradationPriorityBox *DegradationPriority;
 	GF_PaddingBitsBox *PaddingBits;
 	GF_SampleDependencyTypeBox *SampleDep;
+	GF_SampleReferences *SampleRefs;
 
 	GF_TrafToSampleMap *traf_map;
 
@@ -2730,6 +2750,7 @@ typedef struct
 	/*keep a pointer to default flags*/
 	GF_TrackExtendsBox *trex;
 	GF_SampleDependencyTypeBox *sdtp;
+	GF_SampleReferences *SampleRefs;
 
 //	GF_SubSampleInformationBox *subs;
 	GF_List *sub_samples;

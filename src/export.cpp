@@ -994,6 +994,7 @@
 #pragma comment (linker, EXPORT_SYMBOL(gf_isom_enum_track_references) )
 #pragma comment (linker, EXPORT_SYMBOL(gf_isom_get_text_description) )
 #pragma comment (linker, EXPORT_SYMBOL(gf_isom_is_track_referenced) )
+#pragma comment (linker, EXPORT_SYMBOL(gf_isom_switch_source) )
 
 # ifndef GPAC_DISABLE_ISOM_DUMP
 #pragma comment (linker, EXPORT_SYMBOL(gf_isom_dump) )
@@ -2400,6 +2401,7 @@
 
 #pragma comment (linker, EXPORT_SYMBOL(gf_props_type_is_enum) )
 #pragma comment (linker, EXPORT_SYMBOL(gf_props_parse_enum) )
+#pragma comment (linker, EXPORT_SYMBOL(gf_props_parse_value) )
 #pragma comment (linker, EXPORT_SYMBOL(gf_props_enum_name) )
 #pragma comment (linker, EXPORT_SYMBOL(gf_props_enum_all_names) )
 #pragma comment (linker, EXPORT_SYMBOL(gf_props_reset_single) )

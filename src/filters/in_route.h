@@ -79,7 +79,7 @@ typedef struct
 {
 	//options
 	char *src, *ifce, *odir, *repair_url;
-	Bool gcache, kc, skipr, reorder, fullseg, cloop, llmode;
+	Bool gcache, kc, skipr, reorder, fullseg, cloop, llmode, dynsel;
 	u32 buffer, timeout, stats, max_segs, tsidbg, rtimeout, nbcached, repair;
 	u32 max_sess;
 	s32 tunein, stsi;
@@ -152,7 +152,6 @@ struct _route_repair_seg_info
 };
 
 
-Bool routein_repair_segment(ROUTEInCtx *ctx, GF_ROUTEEventFileInfo *finfo);
 void routein_repair_mark_file(ROUTEInCtx *ctx, u32 service_id, const char *filename, Bool is_delete);
 void routein_queue_repair(ROUTEInCtx *ctx, GF_ROUTEEventType evt, u32 evt_param, GF_ROUTEEventFileInfo *finfo);
 

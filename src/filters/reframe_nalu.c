@@ -71,7 +71,7 @@ typedef struct
 	//filter args
 	GF_Fraction fps;
 	Double index;
-	Bool explicit, force_sync, nosei, importer, subsamples, nosvc, novpsext, deps, seirw, audelim, analyze, notime;
+	Bool explicit, force_sync, nosei, importer, subsamples, nosvc, novpsext, deps, seirw, audelim, analyze, notime, refs;
 	u32 nal_length;
 	u32 strict_poc;
 	u32 bsdbg;
@@ -155,7 +155,7 @@ typedef struct
 	u32 nal_store_size, nal_store_alloc;
 
 	//list of param sets found
-	GF_List *sps, *pps, *vps, *sps_ext, *pps_svc, *vvc_aps_pre, *vvc_dci, *vvc_opi;
+	GF_List *sps, *pps, *vps, *sps_ext, *pps_svc, *vvc_aps_pre, *vvc_dci, *vvc_opi, *sei_prefix;
 	//set to true if one of the PS has been modified, will potentially trigger a PID reconfigure
 	Bool ps_modified;
 	//set to true if one PS has been changed - if false and ps_modified is set, only new PS have been added
@@ -354,16 +354,26 @@ GF_Err naludmx_configure_pid(GF_Filter *filter, GF_FilterPid *pid, Bool is_remov
 		if (ctx->vvc_state) { gf_free(ctx->vvc_state); ctx->vvc_state = NULL; }
 		if (!ctx->hevc_state) GF_SAFEALLOC(ctx->hevc_state, HEVCState);
 		ctx->min_layer_id = 0xFF;
+		if (ctx->refs)
+			ctx->hevc_state->full_slice_header_parse = GF_TRUE;
 	} else if (ctx->codecid==GF_CODECID_VVC) {
 		ctx->log_name = "VVC";
 		if (ctx->hevc_state) { gf_free(ctx->hevc_state); ctx->hevc_state = NULL; }
 		if (ctx->avc_state) { gf_free(ctx->avc_state); ctx->avc_state = NULL; }
 		if (!ctx->vvc_state) GF_SAFEALLOC(ctx->vvc_state, VVCState);
+		if (ctx->refs) {
+			GF_LOG(GF_LOG_WARNING, GF_LOG_MEDIA, ("[%s] reference picture list parsing not supported, patch welcome\n", ctx->log_name));
+			ctx->refs = 0;
+		}
 	} else {
 		ctx->log_name = "AVC|H264";
 		if (ctx->hevc_state) { gf_free(ctx->hevc_state); ctx->hevc_state = NULL; }
 		if (ctx->vvc_state) { gf_free(ctx->vvc_state); ctx->vvc_state = NULL; }
 		if (!ctx->avc_state) GF_SAFEALLOC(ctx->avc_state, AVCState);
+		if (ctx->refs) {
+			GF_LOG(GF_LOG_WARNING, GF_LOG_MEDIA, ("[%s] reference picture list parsing not supported, patch welcome\n", ctx->log_name));
+			ctx->refs = 0;
+		}
 	}
 	if (ctx->timescale && !ctx->opid) {
 		ctx->opid = gf_filter_pid_new(filter);
@@ -1194,6 +1204,16 @@ static Bool naludmx_create_hevc_decoder_config(GF_NALUDmxCtx *ctx, u8 **dsi, u32
 		if (!layer_id) *has_hevc_base = GF_TRUE;
 		if (!ctx->analyze)
 			naludmx_add_param_nalu(layer_id ? lvcc->param_array : cfg->param_array, sl, GF_HEVC_NALU_PIC_PARAM);
+	}
+
+	cfg = ctx->explicit ? lvcc : hvcc;
+	count = gf_list_count(ctx->sei_prefix);
+	for (i=0; i<count; i++) {
+		GF_NALUFFParam *sl = gf_list_get(ctx->sei_prefix, i);
+		layer_id = ((sl->data[0] & 0x1) << 5) | (sl->data[1] >> 3);
+		if (!layer_id) *has_hevc_base = GF_TRUE;
+		if (!ctx->analyze)
+			naludmx_add_param_nalu(layer_id ? lvcc->param_array : cfg->param_array, sl, GF_HEVC_NALU_SEI_PREFIX);
 	}
 
 	*dsi = *dsi_enh = NULL;
@@ -2088,6 +2108,11 @@ static void naludmx_queue_param_set(GF_NALUDmxCtx *ctx, char *data, u32 size, u3
 			list = ctx->pps;
 			ctx->valid_ps_flags |= 1<<1;
 			break;
+		case GF_HEVC_NALU_SEI_PREFIX:
+			if (!ctx->sei_prefix)
+				ctx->sei_prefix = gf_list_new();
+			list = ctx->sei_prefix;
+			break;
 		default:
 			gf_assert(0);
 			return;
@@ -2334,7 +2359,6 @@ static void naludmx_update_nalu_maxsize(GF_NALUDmxCtx *ctx, u32 size)
 	}
 }
 
-
 GF_FilterPacket *naludmx_start_nalu(GF_NALUDmxCtx *ctx, u32 nal_size, Bool skip_nal_field, Bool *au_start, u8 **pck_data)
 {
 	GF_FilterPacket *dst_pck = gf_filter_pck_new_alloc(ctx->opid, nal_size + (skip_nal_field ? 0 : ctx->nal_length), pck_data);
@@ -2377,6 +2401,29 @@ GF_FilterPacket *naludmx_start_nalu(GF_NALUDmxCtx *ctx, u32 nal_size, Bool skip_
 		naludmx_update_time(ctx);
 		*au_start = GF_FALSE;
 		ctx->nb_frames++;
+
+		if (ctx->refs) {
+			s32 POC = GF_INT_MAX;
+			u32 nb_refs=0;
+			s32 *refs = NULL;
+			if (ctx->hevc_state) {
+				if (!ctx->hevc_state->s_info.nb_lt_ref_pics) {
+					POC = ctx->hevc_state->s_info.poc;
+					nb_refs = ctx->hevc_state->s_info.nb_reference_pocs;
+					refs = ctx->hevc_state->s_info.reference_pocs;
+				}
+			}
+
+			gf_filter_pck_set_property(dst_pck, GF_PROP_PCK_ID, &PROP_SINT(POC));
+			if (refs && nb_refs) {
+				GF_PropertyValue p;
+				p.type = GF_PROP_SINT_LIST;
+				p.value.sint_list.nb_items = nb_refs;
+				p.value.sint_list.vals = refs;
+				gf_filter_pck_set_property(dst_pck, GF_PROP_PCK_REFS, &p);
+			}
+
+		}
 	} else {
 		gf_filter_pck_set_framing(dst_pck, GF_FALSE, GF_FALSE);
 	}
@@ -2487,6 +2534,9 @@ static s32 naludmx_parse_nal_hevc(GF_NALUDmxCtx *ctx, char *data, u32 size, Bool
 		break;
 	case GF_HEVC_NALU_SEI_PREFIX:
 		gf_hevc_parse_sei(data, size, ctx->hevc_state);
+		if (ctx->hevc_state->has_3d_ref_disp_info) {
+			naludmx_queue_param_set(ctx, data, size, GF_HEVC_NALU_SEI_PREFIX, 0, temporal_id, layer_id);
+		}
 		if (!ctx->nosei) {
 			ctx->nb_sei++;
 			naludmx_push_prefix(ctx, data, size, GF_FALSE);
@@ -4083,6 +4133,7 @@ static void naludmx_reset_param_sets(GF_NALUDmxCtx *ctx, Bool do_free)
 	naludmx_del_param_list(ctx->vvc_aps_pre, do_free);
 	naludmx_del_param_list(ctx->vvc_dci, do_free);
 	naludmx_del_param_list(ctx->vvc_opi, do_free);
+	naludmx_del_param_list(ctx->sei_prefix, do_free);
 }
 
 static void naludmx_finalize(GF_Filter *filter)
@@ -4307,6 +4358,7 @@ static const GF_FilterArgs NALUDmxArgs[] =
 	{ OFFS(nal_length), "set number of bytes used to code length field: 1, 2 or 4", GF_PROP_UINT, "4", NULL, GF_FS_ARG_HINT_EXPERT},
 	{ OFFS(subsamples), "import subsamples information", GF_PROP_BOOL, "false", NULL, GF_FS_ARG_HINT_EXPERT},
 	{ OFFS(deps), "import sample dependency information", GF_PROP_BOOL, "false", NULL, GF_FS_ARG_HINT_EXPERT},
+	{ OFFS(refs), "import sample reference picture list (currently only for HEVC)", GF_PROP_BOOL, "false", NULL, GF_FS_ARG_HINT_EXPERT},
 	{ OFFS(seirw), "rewrite AVC sei messages for ISOBMFF constraints", GF_PROP_BOOL, "true", NULL, GF_FS_ARG_HINT_EXPERT},
 	{ OFFS(audelim), "keep Access Unit delimiter in payload", GF_PROP_BOOL, "false", NULL, GF_FS_ARG_HINT_EXPERT},
 	{ OFFS(analyze), "skip reformat of decoder config and SEI and dispatch all NAL in input order - shall only be used with inspect filter analyze mode!", GF_PROP_UINT, "off", "off|on|bs|full", GF_FS_ARG_HINT_HIDE},

@@ -1133,7 +1133,8 @@ static Bool isoffin_process_event(GF_Filter *filter, const GF_FilterEvent *evt)
 				//send a seek request
 				read->is_partial_download = GF_TRUE;
 				read->wait_for_source = GF_TRUE;
-				read->refresh_fragmented = GF_TRUE;
+				if (read->frag_type)
+					read->refresh_fragmented = GF_TRUE;
 
 				GF_FEVT_INIT(fevt, GF_FEVT_SOURCE_SEEK, read->pid);
 				fevt.seek.start_offset = max_offset;
@@ -1386,6 +1387,14 @@ static GF_Err isoffin_process(GF_Filter *filter)
 				}
 				break;
 			}
+			if (read->is_partial_download && read->wait_for_source && !read->mem_load_mode) {
+				const GF_PropertyValue *prop = gf_filter_pid_get_property(read->pid, GF_PROP_PID_DOWNLOAD_SESSION);
+				if (prop && prop->type==GF_PROP_POINTER) {
+					const char *new_url = gf_dm_sess_get_cache_name(prop->value.ptr);
+					if (new_url)
+						gf_isom_switch_source(read->mov, new_url);
+				}
+			}
 			read->wait_for_source = GF_FALSE;
 
 			if (read->mem_load_mode) {
@@ -1606,6 +1615,20 @@ static GF_Err isoffin_process(GF_Filter *filter)
 				//for now we only signal xPS mask for non-sap
 				if (ch->xps_mask && !gf_filter_pck_get_sap(pck) ) {
 					gf_filter_pck_set_property(pck, GF_PROP_PCK_XPS_MASK, &PROP_UINT(ch->xps_mask) );
+				}
+				if (!ch->item_id) {
+					u32 ID, nb_refs=0;
+					const u32 *refs=NULL;
+					if (gf_isom_get_sample_references(read->mov, ch->track, ch->sample_num, &ID, &nb_refs, &refs)==GF_OK) {
+						gf_filter_pck_set_property(pck, GF_PROP_PCK_ID, &PROP_SINT(ID));
+						if (refs && nb_refs) {
+							GF_PropertyValue p;
+							p.type = GF_PROP_SINT_LIST;
+							p.value.sint_list.nb_items = nb_refs;
+							p.value.sint_list.vals = (u32*) refs;
+							gf_filter_pck_set_property(pck, GF_PROP_PCK_REFS, &p);
+						}
+					}
 				}
 
 				dep_flags = ch->isLeading;

@@ -591,6 +591,16 @@ GF_Err MergeTrack(GF_TrackBox *trak, GF_TrackFragmentBox *traf, GF_MovieFragment
 		gf_list_del_item(traf->child_boxes, traf->tfrf);
 		gf_list_add(trak->child_boxes, trak->tfrf);
 	}
+	if (traf->SampleRefs) {
+		if (!trak->Media->information->sampleTable->SampleRefs) {
+			trak->Media->information->sampleTable->SampleRefs = traf->SampleRefs;
+			gf_list_add(trak->Media->information->sampleTable->child_boxes, traf->SampleRefs);
+			gf_list_del_item(traf->child_boxes, traf->SampleRefs);
+			traf->SampleRefs = NULL;
+		} else {
+			gf_list_transfer(trak->Media->information->sampleTable->SampleRefs->entries, traf->SampleRefs->entries);
+		}
+	}
 
 	if (trak->moov->mov->signal_frag_bounds) {
 		store_traf_map = GF_TRUE;
@@ -617,6 +627,10 @@ GF_Err MergeTrack(GF_TrackBox *trak, GF_TrackFragmentBox *traf, GF_MovieFragment
 					if (traf_clone->sdtp) {
 						gf_isom_box_del_parent(&traf_clone->child_boxes, (GF_Box *) traf_clone->sdtp);
 						traf_clone->sdtp = NULL;
+					}
+					if (traf_clone->SampleRefs) {
+						gf_isom_box_del_parent(&traf_clone->child_boxes, (GF_Box *) traf_clone->SampleRefs);
+						traf_clone->SampleRefs = NULL;
 					}
 				}
 				gf_isom_box_size((GF_Box *)moof_clone);
@@ -664,7 +678,6 @@ GF_Err MergeTrack(GF_TrackBox *trak, GF_TrackFragmentBox *traf, GF_MovieFragment
 #endif
 	i=0;
 	while ((trun = (GF_TrackFragmentRunBox *)gf_list_enum(traf->TrackRuns, &i))) {
-
 		//file loaded without moov and tfhd does not override default flags:
 		//if first sample flag is set, reset defaults to non-sync
 		if ((trak->moov->mov->FragmentsFlags & GF_ISOM_FRAG_READ_NO_MOOV)
@@ -672,6 +685,13 @@ GF_Err MergeTrack(GF_TrackBox *trak, GF_TrackFragmentBox *traf, GF_MovieFragment
 			&& (trun->flags & GF_ISOM_TRUN_FIRST_FLAG)
 		) {
 			def_flags = 0x10000;
+		}
+
+		if (! (trun->flags & (GF_ISOM_TRUN_DURATION | GF_ISOM_TRUN_SIZE | GF_ISOM_TRUN_FLAGS | GF_ISOM_TRUN_CTS_OFFSET) ) ) {
+			if (!def_size || (trun->sample_count>0x10000)) {
+				GF_LOG(GF_LOG_ERROR, GF_LOG_CONTAINER, ("[iso file] Invalid track run for track %d - default size %d num samples %d\n", traf->trex->trackID, def_size, trun->sample_count));
+				return GF_ISOM_INVALID_FILE;
+			}
 		}
 
 		//merge the run
