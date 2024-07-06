@@ -122,10 +122,13 @@ typedef struct __sample_dep
 	//size of the range
 	u32 size;
 	//ID of the range
-	u16 id;
-	//ID of the highest dependent range required to process the range
-	//if dep_id == id, sample is random access
-	u16 dep_id;
+	u32 id;
+	//ID of the ranges required to process the range
+	//if nb_deps<0, dependency is unknown
+	//if nb_deps==0, sample is random access
+	s32 nb_deps;
+	u32 *dep_ids;
+	//0: unknown
 	//1: random access
 	//2: leaf temporal level, discardable right away
 	u8 type;

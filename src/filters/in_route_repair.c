@@ -76,6 +76,13 @@ static Bool routein_repair_get_isobmf_deps(const char *seg_name, GF_Blob *blob, 
 	u32 cur_id_sap = 0;
 	u32 cur_id_p = 0;
 	u32 nb_levels=0;
+	u32 ID, nb_refs;
+	const u32 *refs;
+	Bool use_sref = GF_FALSE;
+	if (gf_isom_get_sample_references(file, 1, 1, &ID, &nb_refs, &refs)==GF_OK) {
+		use_sref = GF_TRUE;
+	}
+
 	for (i=0; i<count; i++) {
 		SampleRangeDependency *r = &ranges[i];
 		u64 offset;
@@ -85,6 +92,23 @@ static Bool routein_repair_get_isobmf_deps(const char *seg_name, GF_Blob *blob, 
 		if (!samp) break;
 		r->size = samp->dataLength;
 		r->offset = (u32) offset;
+
+		if (use_sref) {
+			gf_isom_get_sample_references(file, 1, i+1, &r->id, &r->nb_deps, &refs);
+			if (r->id==0xFFFFFFFF) {
+				r->nb_deps = -1;
+				continue;
+			}
+			if (refs && r->nb_deps) {
+				r->dep_ids = gf_malloc(sizeof(u32)*r->nb_deps);
+				memcpy(r->dep_ids, refs, sizeof(u32)*r->nb_deps);
+			}
+			if (samp->IsRAP) {
+				r->type = 1;
+			}
+			continue;
+		}
+
 		cts_offset = samp->CTS_Offset;
 		//translate to unsigned cts offset
 		if (min_cts_o<0) cts_offset -= cts_offset;
@@ -93,8 +117,8 @@ static Bool routein_repair_get_isobmf_deps(const char *seg_name, GF_Blob *blob, 
 			ctso_last_sap = cts_offset;
 			max_ctso = -1;
 			cur_id_sap += cur_id_p + nb_levels+1;
-			r->id = cur_id_sap;	Bool was_partial;
-			r->dep_id = cur_id_sap;
+			r->id = cur_id_sap;
+			r->nb_deps = 0;
 			cur_id_p = cur_id_sap;
 			nb_levels = 0;
 			r->type = 1;
@@ -105,19 +129,28 @@ static Bool routein_repair_get_isobmf_deps(const char *seg_name, GF_Blob *blob, 
 			cur_id_p += nb_levels+1;
 			nb_levels = 1;
 			r->id = cur_id_p;
-			r->dep_id = cur_id_sap;
+			r->nb_deps = 1;
+			r->dep_ids = gf_malloc(sizeof(u32));
+			r->dep_ids[0] = cur_id_sap;
 			continue;
 		}
 		if (cts_offset) {
 			nb_levels = 2;
 			r->id = cur_id_p+1;
-			r->dep_id = cur_id_p;
+			r->nb_deps = 2;
+			r->dep_ids = gf_malloc(sizeof(u32));
+			r->dep_ids[0] = cur_id_sap;
+			r->dep_ids[1] = cur_id_p;
 			continue;
 		}
 		if (nb_levels == 2) nb_levels = 3;
 		else if (nb_levels==1) nb_levels = 2;
+
 		r->id = cur_id_p + nb_levels-1;
-		r->dep_id = cur_id_p + nb_levels-2;
+		r->nb_deps = 2;
+		r->dep_ids = gf_malloc(sizeof(u32));
+		r->dep_ids[0] = cur_id_p;
+		r->dep_ids[1] = cur_id_p + nb_levels-2;
 		r->type = 2;
 	}
 	gf_isom_delete(file);
@@ -126,8 +159,13 @@ static Bool routein_repair_get_isobmf_deps(const char *seg_name, GF_Blob *blob, 
 	if (gf_log_tool_level_on(GF_LOG_ROUTE, GF_LOG_DEBUG)) {
 		GF_LOG(GF_LOG_DEBUG, GF_LOG_ROUTE, ("[ROUTE] Range dependency for file %s\n", seg_name ? seg_name : szBlobPath));
 		for (i=0; i<count; i++) {
+			u32 j;
 			SampleRangeDependency *r = &ranges[i];
-			GF_LOG(GF_LOG_DEBUG, GF_LOG_ROUTE, ("\t#%3d size %10u offset %10u ID %2u depends on range ID %2u\n", i+1, r->size, r->offset, r->id, r->dep_id));
+			GF_LOG(GF_LOG_DEBUG, GF_LOG_ROUTE, ("\t#%3d size %10u offset %10u ID %2u depends on range IDs", i+1, r->size, r->offset, r->id));
+			for (j=0;j<r->nb_deps;j++) {
+				GF_LOG(GF_LOG_DEBUG, GF_LOG_ROUTE, (" %2u", r->dep_ids[j]));
+			}
+			GF_LOG(GF_LOG_DEBUG, GF_LOG_ROUTE, ("\n"));
 		}
 	}
 #endif
@@ -521,7 +559,7 @@ static void route_repair_topological_sort_samples(SampleRangeDependency srd[], u
 	//look for intra images !
 	for(i=0; i < nb_ranges; i++) {
 		srd[i].mark = 0;
-		if(srd[i].id == srd[i].dep_id) {
+		if(srd[i].type == 1) {
 			sorted_samples[j] = &srd[i];
 			srd[i].mark = 1;
 			j++;
@@ -531,7 +569,9 @@ static void route_repair_topological_sort_samples(SampleRangeDependency srd[], u
 	for(i=0; i<nb_ranges && i<j; i++) {
 		u32 k;
 		for(k=0; k < nb_ranges; k++) {
-			if(srd[k].dep_id == srd[i].id && !srd[k].mark) {
+			if (srd[k].nb_deps<=0) continue;
+			//TODO: loop on all deps ?
+			if (srd[k].dep_ids[0] == srd[i].id && !srd[k].mark) {
 				sorted_samples[j] = &srd[k];
 				srd[k].mark = 1;
 				j++;
@@ -543,6 +583,16 @@ static void route_repair_topological_sort_samples(SampleRangeDependency srd[], u
 		GF_LOG(GF_LOG_WARNING, GF_LOG_ROUTE, ("[REPAIR] Problem in dependencies: not all samples are in sorted_samples (%u < %u) \n", j, nb_ranges));
 	}
 }
+
+static void routein_delete_range_deps(SampleRangeDependency *srd, u32 nb_ranges)
+{
+	u32 i;
+	for (i=0; i<nb_ranges; i++) {
+		if (srd[i].dep_ids) gf_free(srd[i].dep_ids);
+	}
+	gf_free(srd);
+}
+
 
 static void route_repair_build_ranges_full(ROUTEInCtx *ctx, RepairSegmentInfo *rsi, GF_ROUTEEventFileInfo *finfo)
 {
@@ -619,7 +669,8 @@ static void route_repair_isobmf_mdat_box(ROUTEInCtx *ctx, RepairSegmentInfo *rsi
 		routein_repair_isobmf_frames(ctx, rsi, r, threshold);
 	}
 
-	gf_free(rsi->srd);
+	routein_delete_range_deps(rsi->srd, nb_ranges);
+	rsi->srd = NULL;
 }
 
 void routein_queue_repair(ROUTEInCtx *ctx, GF_ROUTEEventType evt, u32 evt_param, GF_ROUTEEventFileInfo *finfo)
