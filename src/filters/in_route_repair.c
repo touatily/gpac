@@ -138,7 +138,7 @@ static Bool routein_repair_get_isobmf_deps(const char *seg_name, GF_Blob *blob, 
 			nb_levels = 2;
 			r->id = cur_id_p+1;
 			r->nb_deps = 2;
-			r->dep_ids = gf_malloc(sizeof(u32));
+			r->dep_ids = gf_malloc(r->nb_deps * sizeof(u32));
 			r->dep_ids[0] = cur_id_sap;
 			r->dep_ids[1] = cur_id_p;
 			continue;
@@ -148,7 +148,7 @@ static Bool routein_repair_get_isobmf_deps(const char *seg_name, GF_Blob *blob, 
 
 		r->id = cur_id_p + nb_levels-1;
 		r->nb_deps = 2;
-		r->dep_ids = gf_malloc(sizeof(u32));
+		r->dep_ids = gf_malloc(r->nb_deps * sizeof(u32));
 		r->dep_ids[0] = cur_id_p;
 		r->dep_ids[1] = cur_id_p + nb_levels-2;
 		r->type = 2;
